@@ -1,0 +1,11 @@
+LICENSE
+README.md
+pyproject.toml
+setup.cfg
+muxcnn/__init__.py
+muxcnn/hecnn.py
+muxcnn/utils.py
+muxcnn.egg-info/PKG-INFO
+muxcnn.egg-info/SOURCES.txt
+muxcnn.egg-info/dependency_links.txt
+muxcnn.egg-info/top_level.txt
