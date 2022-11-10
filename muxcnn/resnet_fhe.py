@@ -21,14 +21,14 @@ class ResNetFHE():
         self.torch_model = model
         self.torch_model.eval()
         self.nslots = 2**15
-        
-        self._set_activation(alpha=alpha, xmin=-10, xmax=10, min_depth=True)
+        self.alpha=alpha
     
     def set_agents(self, context, ev, encoder, encryptor):
         self.context = context
         self.ev = ev
         self.encoder = encoder
         self.encryptor = encryptor
+        self._set_activation(alpha=self.alpha, xmin=-10, xmax=10, min_depth=True)
         
     def _set_activation(self, *args, **kwargs):
         self.activation = ApprRelu_FHE(self.ev, *args, **kwargs)
@@ -166,7 +166,7 @@ class ResNetFHE():
 
         MuxBN_C, MuxBN_M, MuxBN_I = parMuxBN(bn_layer, outs, nslots)
 
-        ct_d = self.gen_new_ctxt(ev) ####
+        ct_d = self.gen_new_ctxt() ####
         ev.mod_down_by(ct_d, 2*ct_d.logp)
         ct = []
         nrots=0
