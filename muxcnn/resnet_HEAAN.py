@@ -3,7 +3,7 @@ from math import ceil
 import torch.nn as nn
 from typing import Dict
 from muxcnn.models import ResNet20
-from hemul.comparator_fhe import ApprRelu_FHE
+from .comparator_heaan import ApprRelu_HEAAN
 from hemul import heaan
 import hemul.HEAAN as he
 #from hemul.utils import key_hash
@@ -13,7 +13,9 @@ from muxcnn.hecnn_par import (MultParPack,
                                 tensor_multiplexed_selecting, 
                                 Vec, 
                                 ParMultWgt)
-from muxcnn.hecnn_par import AVGPool
+from muxcnn.hecnn_par import select_AVG
+
+
 
 
 class ResNetHEAAN():
@@ -23,16 +25,17 @@ class ResNetHEAAN():
         self.hec = hec
         self.nslots = 2**hec.parms.logn
         self.alpha=alpha
+        self._set_activation(alpha=self.alpha, xmin=-20, xmax=20, min_depth=True)
         
-    def set_agents(self, context):
-        self.context = context
-        self.ev = self.hec
-        self.encoder = self.hec
-        self.encryptor = self.hec
-        self._set_activation(alpha=self.alpha, xmin=-10, xmax=10, min_depth=True)
+    # def set_agents(self, context):
+    #     self.context = context
+    #     self.ev = self.hec
+    #     self.encoder = self.hec
+    #     self.encryptor = self.hec
+    #     self._set_activation(alpha=self.alpha, xmin=-10, xmax=10, min_depth=True)
         
     def _set_activation(self, *args, **kwargs):
-        self.activation = ApprRelu_FHE(self.ev, *args, **kwargs)
+        self.activation = ApprRelu_HEAAN(self.hec, *args, **kwargs)
 
     def forward(self, img_tensor, ki=1, hi=32, wi=32):
         model = self.torch_model
@@ -42,7 +45,7 @@ class ResNetHEAAN():
         ctxt, outs1 = self.forward_bb(model.layer1[0], ctxt, outs0)
         ctxt, outs2 = self.forward_bb(model.layer2[0], ctxt, outs1)
         ctxt, outs3 = self.forward_bb(model.layer3[0], ctxt, outs2)
-        ctxt = AVGPool(ctxt, outs3, self.nslots) # Gloval pooling
+        ctxt = self.AVGPool(ctxt, outs3, self.nslots) # Gloval pooling
         return self.forward_linear(ctxt, model.linear)
 
     def pack_img_ctxt(self, img_tensor):
@@ -58,12 +61,13 @@ class ResNetHEAAN():
         ct_a = MultParPack(imgl, ins0)
         return self.hec.encrypt(ct_a)
 
-
     def forward_early(self, ct_a, ki, hi, wi):
         model = self.torch_model
         _, ins0, outs0 = get_conv_params(model.conv1, {'k':ki, 'h':hi, 'w':wi})
         ctxt = self.forward_convbn_par_fhe(model.conv1, 
                                         model.bn1, ct_a, ins0)
+        print("Check 1")
+        print(self.hec.decrypt(ctxt))
         ctxt = self.activation(ctxt)
         return ctxt, outs0 
 
@@ -86,13 +90,21 @@ class ResNetHEAAN():
             shortcut = ctxt_in
 
         # Add shortcut
-        ctxt += shortcut
+        if ctxt.logp >= shortcut.logp:
+            self.hec.rescale(ctxt, shortcut.logp)
+        elif ctxt.logp < shortcut.logp:
+            self.hec.rescale(shortcut, ctxt.logp)
+        self.hec.match_mod(ctxt, shortcut)
+        print(ctxt, shortcut)
+        self.hec.add(ctxt, shortcut)
+        #ctxt += shortcut
         # Activation
         ctxt = self.activation(ctxt)
 
         return ctxt, outs
 
     def forward_linear(self, ctxt, linearl:nn.modules.Linear):
+        hec = self.hec
         no, ni = linearl.weight.shape
 
         weight_vec = np.zeros(self.nslots)
@@ -100,15 +112,24 @@ class ResNetHEAAN():
 
         # make 10 copies of 64 flattened values
         for i in range(ceil(np.log2(no))):
-            ctxt += np.roll(ctxt, 2**i*ni)
+            #ctxt += np.roll(ctxt, 2**i*ni)
+            hec.add(ctxt, 
+            hec.lrot(ctxt, -2**i*ni, inplace=False),
+                    inplace=True)
+            
 
         # multiply 64 * 10 at once
         # AVGPool에서 S_vec를 조절하면 이 단계의 일부를 미리 수행할 수 있음 !!
-        ctxt = weight_vec * ctxt
+        #ctxt = weight_vec * ctxt
+        hec.multByVec(ctxt, weight_vec, inplace=True)
+        hec.rescale(ctxt)
 
         # Sum 64 numbers each 
         for j in range(int(np.log2(ni))):
-            ctxt += np.roll(ctxt, -2**j)
+            #ctxt += np.roll(ctxt, -2**j)
+            hec.add(ctxt, 
+                hec.lrot(ctxt, 2**j, inplace=False),
+                        inplace=True)
 
         return ctxt
 
@@ -174,36 +195,36 @@ class ResNetHEAAN():
             temp = []
             for i2 in range(fw):
                 lrots = int((-(ki**2)*wi*(i1-(fh-1)/2) - ki*(i2-(fw-1)/2))) #both neg in the paper, git -,+
-                print("i1,i2, lrots", i1,i2, lrots, flush=True)
+                #print("i1,i2, lrots", i1,i2, lrots, flush=True)
                 temp.append(ev.lrot(ct_a, -lrots, inplace=False))
                 if lrots!=0:
                     nrots = nrots+ 1#____________________________________ROTATION
 
-                print("ct\n", len(temp), flush=True)
+                #print("ct\n", len(temp), flush=True)
             ct.append(temp)
-            print("ct\n", len(ct), flush=True)
+            #print("ct\n", len(ct), flush=True)
         #return ct
 
         for i3 in range(q):
-            print("aaaaa", flush=True)
+            #print("aaaaa", flush=True)
             ct_b = self.gen_new_ctxt() ####
-            print("bbbbbb", flush=True)
+            #print("bbbbbb", flush=True)
             ev.modDownBy(ct_b, ct_b.logp, inplace=True)
-            print(ct_b.logp, ct_b.logq, flush=True)
-            print("cccccc", flush=True)
+            #print(ct_b.logp, ct_b.logq, flush=True)
+            #print("cccccc", flush=True)
             for i1 in range(fh):
                 for i2 in range(fw):
-                    print("xxxxxxxxxx", flush=True)
+                    #print("xxxxxxxxxx", flush=True)
                     w = ParMultWgt(U,i1,i2,i3,ins,co,kernels,nslots)
                     #w_enc = encoder.encode(w)#, ct[i1][i2].logp) ####
-                    print("ct[i1][i2]\n", ct[i1][i2].logp, flush=True)
-                    print("w",w)
+                    #print("ct[i1][i2]\n", ct[i1][i2].logp, flush=True)
+                    #print("w",w)
                     tmp = ev.multByVec(ct[i1][i2], w, inplace=False)
-                    print("dddddd", flush=True)
+                    #print("dddddd", flush=True)
                     ev.rescale(tmp)
-                    print("eeeeee", flush=True)
+                    #print("eeeeee", flush=True)
                     ev.add(ct_b, tmp, inplace=True) ####
-                    print("fffff", flush=True)
+                    #print("fffff", flush=True)
 
             
             ct_c,nrots0 = self.SumSlots(ct_b, ki,              1)
@@ -245,3 +266,35 @@ class ResNetHEAAN():
     def gen_new_ctxt(self):
         parms = self.hec.parms
         return he.Ciphertext(parms.logp, parms.logq, parms.n)
+
+    def AVGPool(self, ct_in, ins, nslots):
+        hec = self.hec
+        ct_a = he.Ciphertext(ct_in)
+        #ct_b = np.zeros(nslots)
+        ct_b = self.gen_new_ctxt()
+        hi,wi,ci,ki,ti,pi = [ins[k] for k in ins.keys()]
+
+        # 한 페이지에 분포하는 64개 숫자를 더함
+        for j in range(int(np.log2(wi))):
+            hec.add(ct_a, 
+                hec.lrot(ct_a, 2**j*ki, inplace=False),
+                        inplace=True)
+            #ct_a += np.roll(ct_a, -2**j*ki) # 4, 8, 16
+
+        for j in range(int(np.log2(hi))):
+            #ct_a += np.roll(ct_a, -2**j*ki*ki*wi) # 128, 256, 512
+            hec.add(ct_a, 
+                hec.lrot(ct_a, 2**j*ki*ki*wi, inplace=False),
+                        inplace=True) 
+
+        ### + 64채널에서 하나씩을 뽑아옴.
+        for i1 in range(ki): # 4
+            for i2 in range(ti): # 
+                S_vec = select_AVG(nslots, ki*i2+i1, ki) / (hi*wi) # 4개 숫자만 추출
+                #ct_b += np.roll(ct_a, -(ki**2*hi*wi*i2 + ki*wi*i1 - ki*(ki*i2+i1)))* S_vec
+                tmp = hec.lrot(ct_a, (ki**2*hi*wi*i2 + ki*wi*i1 - ki*(ki*i2+i1)), inplace=False)
+                hec.multByVec(tmp, S_vec, inplace=True)
+                hec.rescale(tmp)
+                hec.add(ct_b, tmp, inplace=True) 
+                
+        return ct_b

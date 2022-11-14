@@ -22,6 +22,7 @@ class ResNetFHE():
         self.torch_model.eval()
         self.nslots = 2**15
         self.alpha=alpha
+        self.ins = {}
     
     def set_agents(self, context, ev, encoder, encryptor):
         self.context = context
@@ -33,9 +34,9 @@ class ResNetFHE():
     def _set_activation(self, *args, **kwargs):
         self.activation = ApprRelu_FHE(self.ev, *args, **kwargs)
 
-    def forward(self, img_tensor):
+    def forward(self, img_tensor, ki=1, hi=32, wi=32):
         model = self.torch_model
-        ctxt, outs0 = self.forward_early(img_tensor)
+        ctxt, outs0 = self.forward_early(img_tensor, ki, hi, wi)
         
         # Basic blocks
         ctxt, outs1 = self.forward_bb(model.layer1[0], ctxt, outs0)
@@ -61,19 +62,19 @@ class ResNetFHE():
     def forward_early(self, ct_a, ki, hi, wi):
         model = self.torch_model
         _, ins0, outs0 = get_conv_params(model.conv1, {'k':ki, 'h':hi, 'w':wi})
-        ctxt, un1 = self.forward_convbn_par_fhe(model.conv1, 
+        ctxt = self.forward_convbn_par_fhe(model.conv1, 
                                         model.bn1, ct_a, ins0)
         ctxt = self.activation(ctxt)
         return ctxt, outs0 
 
     def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in):
         _, ins, outs = get_conv_params(bb.conv1, outs_in)
-        ctxt, un = self.forward_convbn_par_fhe(bb.conv1,
+        ctxt = self.forward_convbn_par_fhe(bb.conv1,
                                         bb.bn1, ctxt_in, ins)
         ctxt = self.activation(ctxt)
 
         _, ins, outs = get_conv_params(bb.conv2, outs)
-        ctxt, un = self.forward_convbn_par_fhe(bb.conv2,
+        ctxt = self.forward_convbn_par_fhe(bb.conv2,
                                         bb.bn2, ctxt, ins)
         # Shortcut
         if len(bb.shortcut) > 0:

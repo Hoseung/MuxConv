@@ -272,9 +272,6 @@ def AVGPool(ct_in, ins, nslots):
             
     return ct_b
 
-
-
-
 def _ParMultWgt_deprecated(U,i1,i2,i3,ins:Dict,outs:Dict,kernels,nslots=2**15):
     u = tensor_multiplexed_shifted_weight_par(U,i1,i2,i3,ins,outs,kernels)
     out = Vec(u,nslots)
