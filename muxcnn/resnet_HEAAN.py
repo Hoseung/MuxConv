@@ -4,8 +4,9 @@ import torch.nn as nn
 from typing import Dict
 from muxcnn.models import ResNet20
 from .comparator_heaan import ApprRelu_HEAAN
-from hemul import heaan
-import hemul.HEAAN as he
+from hemul import loader 
+he = loader.load()
+#import hemul.HEAAN as he
 #from hemul.utils import key_hash
 from muxcnn.utils import get_q, get_conv_params, get_channel_last
 from muxcnn.hecnn_par import (MultParPack, 
@@ -27,12 +28,6 @@ class ResNetHEAAN():
         self.alpha=alpha
         self._set_activation(alpha=self.alpha, xmin=-20, xmax=20, min_depth=True)
         
-    # def set_agents(self, context):
-    #     self.context = context
-    #     self.ev = self.hec
-    #     self.encoder = self.hec
-    #     self.encryptor = self.hec
-    #     self._set_activation(alpha=self.alpha, xmin=-10, xmax=10, min_depth=True)
         
     def _set_activation(self, *args, **kwargs):
         self.activation = ApprRelu_HEAAN(self.hec, *args, **kwargs)
@@ -40,6 +35,7 @@ class ResNetHEAAN():
     def forward(self, img_tensor, ki=1, hi=32, wi=32):
         model = self.torch_model
         ctxt, outs0 = self.forward_early(img_tensor, ki, hi, wi)
+        self.hec.rescale(ctxt)
         
         # Basic blocks
         ctxt, outs1 = self.forward_bb(model.layer1[0], ctxt, outs0)
@@ -66,17 +62,21 @@ class ResNetHEAAN():
         _, ins0, outs0 = get_conv_params(model.conv1, {'k':ki, 'h':hi, 'w':wi})
         ctxt = self.forward_convbn_par_fhe(model.conv1, 
                                         model.bn1, ct_a, ins0)
-        print("Check 1")
-        print(self.hec.decrypt(ctxt))
+        #print("Check 1")
+        #print(self.hec.decrypt(ctxt))
         ctxt = self.activation(ctxt)
         return ctxt, outs0 
 
     def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in):
+        shortcut = he.Ciphertext(ctxt_in)
+
         _, ins, outs = get_conv_params(bb.conv1, outs_in)
         ctxt = self.forward_convbn_par_fhe(bb.conv1,
                                         bb.bn1, ctxt_in, ins)
         ctxt = self.activation(ctxt)
 
+        #print("After activation", ctxt)
+        #print(self.hec.decrypt(ctxt))
         _, ins, outs = get_conv_params(bb.conv2, outs)
         ctxt = self.forward_convbn_par_fhe(bb.conv2,
                                         bb.bn2, ctxt, ins)
@@ -84,10 +84,8 @@ class ResNetHEAAN():
         if len(bb.shortcut) > 0:
             convl, bnl = bb.shortcut
             _, ins_, _ = get_conv_params(convl, outs_in)
-            shortcut = self.forward_convbn_par_fhe(convl, bnl, ctxt_in, ins_, 
+            shortcut = self.forward_convbn_par_fhe(convl, bnl, shortcut, ins_, 
                                                 convl.kernel_size)
-        elif len(bb.shortcut) == 0:
-            shortcut = ctxt_in
 
         # Add shortcut
         if ctxt.logp >= shortcut.logp:
@@ -176,6 +174,12 @@ class ResNetHEAAN():
                         nslots=2**15, 
                         scale_factor=1):
         ev = self.hec
+
+        if ct_a.logq <= 120:
+            ct_a = self.hec.bootstrap2(ct_a)
+            print("MuxBN bootstrap", ct_a.logp, ct_a.logq)
+
+
         #encoder = self.hec
         hi,wi,ci,ki,ti,pi = [ins[k] for k in ins.keys()]
         ho,wo,co,ko,to,po = [outs[k] for k in outs.keys()]
@@ -188,7 +192,12 @@ class ResNetHEAAN():
         MuxBN_C, MuxBN_M, MuxBN_I = parMuxBN(bn_layer, outs, nslots)
 
         ct_d = self.gen_new_ctxt() ####
-        ev.modDownBy(ct_d, 2*ct_d.logp, inplace=True)
+        
+        tmp = self.hec.decrypt(ct_a)
+        
+        print("ct_a", ct_a.logp, ct_a.logq, tmp[::1000])
+        ev.modDownTo(ct_d, ct_a.logq - 2*ct_d.logp)
+        print("ct_d", ct_d.logp, ct_d.logq)
         ct = []
         nrots=0
         for i1 in range(fh):
@@ -209,8 +218,8 @@ class ResNetHEAAN():
             #print("aaaaa", flush=True)
             ct_b = self.gen_new_ctxt() ####
             #print("bbbbbb", flush=True)
-            ev.modDownBy(ct_b, ct_b.logp, inplace=True)
-            #print(ct_b.logp, ct_b.logq, flush=True)
+            ev.modDownTo(ct_b, ct[0][0].logq - ct_b.logp)
+            print(ct_b.logp, ct_b.logq, flush=True)
             #print("cccccc", flush=True)
             for i1 in range(fh):
                 for i2 in range(fw):
