@@ -52,7 +52,8 @@ class ApprSign_FHE():
                 xmin=-1,
                 xmax=1,
                 min_depth=True, 
-                min_mult=False):
+                min_mult=False,
+                debug=False):
         self.hec = hec
         self.alpha = alpha
         self.margin = margin
@@ -63,6 +64,7 @@ class ApprSign_FHE():
         self.min_mult = min_mult
         self.funs = None
         self.degrees = None
+        self.debug=debug
         if self.alpha is not None:
             self._set_degree()
         if self._params_set():
@@ -93,17 +95,17 @@ class ApprSign_FHE():
     def __call__(self, xin):
         if self.funs is not None:
             for fun in self.funs:
-                print("APPR", xin.logp, xin.logq)
+                if self.debug: print("APPR", xin.logp, xin.logq)
                 tmp = self.hec.decrypt(xin)
-                print(tmp, flush=True)
-                print("min max", tmp.min(), tmp.max(), flush=True)
-                if xin.logq <= 150:
+                if self.debug: print(tmp, flush=True)
+                if self.debug: print("min max", tmp.min(), tmp.max(), flush=True)
+                if xin.logq <= 200:
                     xin = self.hec.bootstrap2(xin)
-                    print("AFTER bootstrap", xin.logp, xin.logq)
+                    if self.debug: print("AFTER bootstrap", xin.logp, xin.logq)
 
                 xin = self.hec.function_poly(fun.coef, xin)#, , xin.logp)
             
-            if xin.logq <= 90:
+            if xin.logq <= 120:
                 xin = self.hec.bootstrap2(xin)
             return xin
         else:

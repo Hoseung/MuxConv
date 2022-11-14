@@ -172,12 +172,12 @@ class ResNetHEAAN():
     def MultParConvBN_fhe(self, ct_a, U, bn_layer, ins:Dict, outs:Dict,
                         kernels=[3,3],
                         nslots=2**15, 
-                        scale_factor=1):
+                        scale_factor=1, debug=False):
         ev = self.hec
 
         if ct_a.logq <= 120:
             ct_a = self.hec.bootstrap2(ct_a)
-            print("MuxBN bootstrap", ct_a.logp, ct_a.logq)
+            if debug: print("MuxBN bootstrap", ct_a.logp, ct_a.logq)
 
 
         #encoder = self.hec
@@ -195,9 +195,9 @@ class ResNetHEAAN():
         
         tmp = self.hec.decrypt(ct_a)
         
-        print("ct_a", ct_a.logp, ct_a.logq, tmp[::1000])
+        if debug: print("ct_a", ct_a.logp, ct_a.logq, tmp[::1000])
         ev.modDownTo(ct_d, ct_a.logq - 2*ct_d.logp)
-        print("ct_d", ct_d.logp, ct_d.logq)
+        if debug: print("ct_d", ct_d.logp, ct_d.logq)
         ct = []
         nrots=0
         for i1 in range(fh):
@@ -219,7 +219,7 @@ class ResNetHEAAN():
             ct_b = self.gen_new_ctxt() ####
             #print("bbbbbb", flush=True)
             ev.modDownTo(ct_b, ct[0][0].logq - ct_b.logp)
-            print(ct_b.logp, ct_b.logq, flush=True)
+            if debug: print(ct_b.logp, ct_b.logq, flush=True)
             #print("cccccc", flush=True)
             for i1 in range(fh):
                 for i2 in range(fw):
