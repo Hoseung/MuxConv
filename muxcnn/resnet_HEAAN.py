@@ -17,16 +17,18 @@ from muxcnn.hecnn_par import (MultParPack,
 from muxcnn.hecnn_par import select_AVG
 
 
-
-
 class ResNetHEAAN():
-    def __init__(self, model, hec, alpha=12):
+    def __init__(self, model, hec, 
+                    alpha=15, 
+                    xmin=-50, 
+                    xmax=50, 
+                    min_depth=True):
         self.torch_model = model
         self.torch_model.eval()
         self.hec = hec
         self.nslots = 2**hec.parms.logn
         self.alpha=alpha
-        self._set_activation(alpha=self.alpha, xmin=-20, xmax=20, min_depth=True)
+        self._set_activation(alpha=self.alpha, xmin=xmin, xmax=xmax, min_depth=min_depth)
         
         
     def _set_activation(self, *args, **kwargs):
@@ -35,12 +37,15 @@ class ResNetHEAAN():
     def forward(self, img_tensor, ki=1, hi=32, wi=32):
         model = self.torch_model
         ctxt, outs0 = self.forward_early(img_tensor, ki, hi, wi)
-        self.hec.rescale(ctxt)
-        
+        #self.hec.rescale(ctxt)
+        print(" - - - - After early", ctxt)
         # Basic blocks
         ctxt, outs1 = self.forward_bb(model.layer1[0], ctxt, outs0)
+        print("After first block\n\n")
         ctxt, outs2 = self.forward_bb(model.layer2[0], ctxt, outs1)
+        print("After second block\n\n")
         ctxt, outs3 = self.forward_bb(model.layer3[0], ctxt, outs2)
+        print("After third block\n\n")
         ctxt = self.AVGPool(ctxt, outs3, self.nslots) # Gloval pooling
         return self.forward_linear(ctxt, model.linear)
 
@@ -57,7 +62,7 @@ class ResNetHEAAN():
         ct_a = MultParPack(imgl, ins0)
         return self.hec.encrypt(ct_a)
 
-    def forward_early(self, ct_a, ki, hi, wi):
+    def forward_early(self, ct_a, ki, hi, wi, debug=True):
         model = self.torch_model
         _, ins0, outs0 = get_conv_params(model.conv1, {'k':ki, 'h':hi, 'w':wi})
         ctxt = self.forward_convbn_par_fhe(model.conv1, 
@@ -67,33 +72,58 @@ class ResNetHEAAN():
         ctxt = self.activation(ctxt)
         return ctxt, outs0 
 
-    def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in):
+    def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in, debug=True):
+        
+        # Bootstrap before shortcut
+        if ctxt_in.logq <= 80:
+            ctxt_in = self.hec.bootstrap2(ctxt_in)
+            if debug: print("MuxBN bootstrap", ctxt_in.logp, ctxt_in.logq)
+
         shortcut = he.Ciphertext(ctxt_in)
 
         _, ins, outs = get_conv_params(bb.conv1, outs_in)
+        print("ZZZZZZZZZZZZZZZZZZZZZZ  11")
         ctxt = self.forward_convbn_par_fhe(bb.conv1,
                                         bb.bn1, ctxt_in, ins)
+        print("ZZZZZZZZZZZZZZZZZZZZZZ  22")
+        print("11111", ctxt)
         ctxt = self.activation(ctxt)
-
-        #print("After activation", ctxt)
-        #print(self.hec.decrypt(ctxt))
+        print("After activation", ctxt)
+        #self.hec.rescale(ctxt)
+        print(self.hec.decrypt(ctxt))
         _, ins, outs = get_conv_params(bb.conv2, outs)
         ctxt = self.forward_convbn_par_fhe(bb.conv2,
                                         bb.bn2, ctxt, ins)
+        print("\n\n ddddddd")
+        print(self.hec.decrypt(ctxt))
         # Shortcut
         if len(bb.shortcut) > 0:
             convl, bnl = bb.shortcut
             _, ins_, _ = get_conv_params(convl, outs_in)
             shortcut = self.forward_convbn_par_fhe(convl, bnl, shortcut, ins_, 
                                                 convl.kernel_size)
+        if debug:
+            print("forward_bb")
+            print("Shortcut", shortcut)
+            print("ctxt", ctxt)
 
         # Add shortcut
-        if ctxt.logp >= shortcut.logp:
+        if ctxt.logp > shortcut.logp:
+            print("ctxt > shortcut")
             self.hec.rescale(ctxt, shortcut.logp)
         elif ctxt.logp < shortcut.logp:
+            print("shortcut > ctxt")
             self.hec.rescale(shortcut, ctxt.logp)
-        self.hec.match_mod(ctxt, shortcut)
+        
+        if ctxt.logq > shortcut.logq:
+            self.hec.match_mod(ctxt, shortcut)
+        elif ctxt.logq < shortcut.logq:
+            self.hec.match_mod(shortcut, ctxt)
+
         print(ctxt, shortcut)
+        print(self.hec.decrypt(ctxt))
+        print(self.hec.decrypt(shortcut))
+        
         self.hec.add(ctxt, shortcut)
         #ctxt += shortcut
         # Activation
@@ -172,13 +202,11 @@ class ResNetHEAAN():
     def MultParConvBN_fhe(self, ct_a, U, bn_layer, ins:Dict, outs:Dict,
                         kernels=[3,3],
                         nslots=2**15, 
-                        scale_factor=1, debug=False):
-        ev = self.hec
-
-        if ct_a.logq <= 120:
+                        scale_factor=1, debug=True):
+        """Consumes two mults"""
+        if ct_a.logq <= 80:
             ct_a = self.hec.bootstrap2(ct_a)
-            if debug: print("MuxBN bootstrap", ct_a.logp, ct_a.logq)
-
+        ev = self.hec
 
         #encoder = self.hec
         hi,wi,ci,ki,ti,pi = [ins[k] for k in ins.keys()]
@@ -193,9 +221,9 @@ class ResNetHEAAN():
 
         ct_d = self.gen_new_ctxt() ####
         
-        tmp = self.hec.decrypt(ct_a)
-        
-        if debug: print("ct_a", ct_a.logp, ct_a.logq, tmp[::1000])
+        if debug:
+            tmp = self.hec.decrypt(ct_a)
+            print("ct_a", ct_a.logp, ct_a.logq, tmp[::1000])
         ev.modDownTo(ct_d, ct_a.logq - 2*ct_d.logp)
         if debug: print("ct_d", ct_d.logp, ct_d.logq)
         ct = []
@@ -208,7 +236,10 @@ class ResNetHEAAN():
                 temp.append(ev.lrot(ct_a, -lrots, inplace=False))
                 if lrots!=0:
                     nrots = nrots+ 1#____________________________________ROTATION
-
+                if debug:
+                    tmp = self.hec.decrypt(temp[-1])
+                    print("temp  ----  ", temp[-1].logp, 
+                            temp[-1].logq, tmp[::1000])
                 #print("ct\n", len(temp), flush=True)
             ct.append(temp)
             #print("ct\n", len(ct), flush=True)
@@ -219,7 +250,12 @@ class ResNetHEAAN():
             ct_b = self.gen_new_ctxt() ####
             #print("bbbbbb", flush=True)
             ev.modDownTo(ct_b, ct[0][0].logq - ct_b.logp)
-            if debug: print(ct_b.logp, ct_b.logq, flush=True)
+            if debug: 
+                print("CT_B", ct_b.logp, ct_b.logq, flush=True)
+                #tmp = self.hec.decrypt(ct_b)
+                #print("CT_B   ----  ", ct_b.logp, 
+                #            ct_b.logq, tmp[::1000])
+
             #print("cccccc", flush=True)
             for i1 in range(fh):
                 for i2 in range(fw):
