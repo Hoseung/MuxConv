@@ -48,12 +48,12 @@ class ApprSign_FHE():
                  hec,
                 alpha=12, 
                 margin = 0.03, 
-                eps=0.02, 
+                eps=0.01, 
                 xmin=-1,
                 xmax=1,
                 min_depth=True, 
                 min_mult=False,
-                debug=False):
+                debug=True):
         self.hec = hec
         self.alpha = alpha
         self.margin = margin
@@ -119,6 +119,8 @@ class ApprRelu_HEAAN(ApprSign_FHE):
     
     def __call__(self, xin):
         hec = self.hec
+        if xin.logq <= (3 * self.hec.parms.logp):
+            xin = self.hec.bootstrap2(xin)
         out = ApprSign_FHE.__call__(self, he.Ciphertext(xin))
         
         if self.debug: 

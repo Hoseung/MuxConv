@@ -34,9 +34,9 @@ class ResNetHEAAN():
     def _set_activation(self, *args, **kwargs):
         self.activation = ApprRelu_HEAAN(self.hec, *args, **kwargs)
 
-    def forward(self, img_tensor, ki=1, hi=32, wi=32, debug=False):
+    def forward(self, ctxt, ki=1, hi=32, wi=32, debug=True):
         model = self.torch_model
-        ctxt, outs0 = self.forward_early(img_tensor, ki, hi, wi)
+        ctxt, outs0 = self.forward_early(ctxt, ki, hi, wi)
         #self.hec.rescale(ctxt)
         if debug: print(" - - - - After early", ctxt)
         # Basic blocks
@@ -62,7 +62,7 @@ class ResNetHEAAN():
         ct_a = MultParPack(imgl, ins0)
         return self.hec.encrypt(ct_a)
 
-    def forward_early(self, ct_a, ki, hi, wi, debug=False):
+    def forward_early(self, ct_a, ki, hi, wi, debug=True):
         model = self.torch_model
         _, ins0, outs0 = get_conv_params(model.conv1, {'k':ki, 'h':hi, 'w':wi})
         ctxt = self.forward_convbn_par_fhe(model.conv1, 
@@ -72,7 +72,7 @@ class ResNetHEAAN():
         ctxt = self.activation(ctxt)
         return ctxt, outs0 
 
-    def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in, debug=False):
+    def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in, debug=True):
         
         # Bootstrap before shortcut
         if ctxt_in.logq <= 80:
@@ -203,7 +203,7 @@ class ResNetHEAAN():
     def MultParConvBN_fhe(self, ct_a, U, bn_layer, ins:Dict, outs:Dict,
                         kernels=[3,3],
                         nslots=2**15, 
-                        scale_factor=1, debug=False):
+                        scale_factor=1, debug=True):
         """Consumes two mults"""
         if ct_a.logq <= 80:
             ct_a = self.hec.bootstrap2(ct_a)
@@ -222,9 +222,9 @@ class ResNetHEAAN():
 
         ct_d = self.gen_new_ctxt() ####
         
-        if debug:
-            tmp = self.hec.decrypt(ct_a)
-            print("ct_a", ct_a.logp, ct_a.logq, tmp[::1000])
+        #if debug:
+        #    tmp = self.hec.decrypt(ct_a)
+        #    print("ct_a", ct_a.logp, ct_a.logq, tmp[::1000])
         ev.modDownTo(ct_d, ct_a.logq - 2*ct_d.logp)
         if debug: print("ct_d", ct_d.logp, ct_d.logq)
         ct = []
@@ -237,10 +237,10 @@ class ResNetHEAAN():
                 temp.append(ev.lrot(ct_a, -lrots, inplace=False))
                 if lrots!=0:
                     nrots = nrots+ 1#____________________________________ROTATION
-                if debug:
-                    tmp = self.hec.decrypt(temp[-1])
-                    print("temp  ----  ", temp[-1].logp, 
-                            temp[-1].logq, tmp[::1000])
+                #if debug:
+                #    tmp = self.hec.decrypt(temp[-1])
+                    #print("temp  ----  ", temp[-1].logp, 
+                    #        temp[-1].logq, tmp[::1000])
                 #print("ct\n", len(temp), flush=True)
             ct.append(temp)
             #print("ct\n", len(ct), flush=True)
@@ -251,8 +251,8 @@ class ResNetHEAAN():
             ct_b = self.gen_new_ctxt() ####
             #print("bbbbbb", flush=True)
             ev.modDownTo(ct_b, ct[0][0].logq - ct_b.logp)
-            if debug: 
-                print("CT_B", ct_b.logp, ct_b.logq, flush=True)
+            #if debug: 
+            #    print("CT_B", ct_b.logp, ct_b.logq, flush=True)
                 #tmp = self.hec.decrypt(ct_b)
                 #print("CT_B   ----  ", ct_b.logp, 
                 #            ct_b.logq, tmp[::1000])
