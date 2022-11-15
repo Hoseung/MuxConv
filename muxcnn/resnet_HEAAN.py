@@ -73,7 +73,7 @@ class ResNetHEAAN():
         return ctxt, outs0 
 
     def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in, debug=True):
-        
+        import pickle
         # Bootstrap before shortcut
         if ctxt_in.logq <= 80:
             ctxt_in = self.hec.bootstrap2(ctxt_in)
@@ -85,15 +85,20 @@ class ResNetHEAAN():
         if debug: print("ZZZZZZZZZZZZZZZZZZZZZZ  11")
         ctxt = self.forward_convbn_par_fhe(bb.conv1,
                                         bb.bn1, ctxt_in, ins)
+        #pickle.dump(self.hec.decrypt(ctxt), open("ctxt1.pkl", "wb"))
+        #print("dumped ctxt1")
         if debug: 
             print("11111", ctxt)
         ctxt = self.activation(ctxt)
+        #pickle.dump(self.hec.decrypt(ctxt), open("ctxt2.pkl", "wb"))
+        #print("dumped ctxt2")
         if debug: 
             print("After activation", ctxt)
             print(self.hec.decrypt(ctxt))
         _, ins, outs = get_conv_params(bb.conv2, outs)
         ctxt = self.forward_convbn_par_fhe(bb.conv2,
                                         bb.bn2, ctxt, ins)
+        #pickle.dump(self.hec.decrypt(ctxt), open("ctxt3.pkl", "wb"))
         if debug:
             print("\n\n ddddddd")
             print(self.hec.decrypt(ctxt))
@@ -103,9 +108,9 @@ class ResNetHEAAN():
             _, ins_, _ = get_conv_params(convl, outs_in)
             shortcut = self.forward_convbn_par_fhe(convl, bnl, shortcut, ins_, 
                                                 convl.kernel_size)
+        #pickle.dump(self.hec.decrypt(shortcut), open("shortcut.pkl", "wb"))
         if debug:
-            print("forward_bb")
-            print("Shortcut", shortcut)
+            print("[forward_bb] Shortcut", shortcut)
             print("ctxt", ctxt)
 
         # Add shortcut
@@ -125,10 +130,12 @@ class ResNetHEAAN():
             print(self.hec.decrypt(ctxt))
             print(self.hec.decrypt(shortcut))
         
-        self.hec.add(ctxt, shortcut)
+        self.hec.add(ctxt, shortcut, inplace=True)
+        #pickle.dump(self.hec.decrypt(ctxt), open("ctxt4.pkl", "wb"))
         #ctxt += shortcut
         # Activation
         ctxt = self.activation(ctxt)
+        #pickle.dump(self.hec.decrypt(ctxt), open("ctxt5.pkl", "wb"))
 
         return ctxt, outs
 
@@ -143,8 +150,8 @@ class ResNetHEAAN():
         for i in range(ceil(np.log2(no))):
             #ctxt += np.roll(ctxt, 2**i*ni)
             hec.add(ctxt, 
-            hec.lrot(ctxt, -2**i*ni, inplace=False),
-                    inplace=True)
+                hec.lrot(ctxt, -2**i*ni, inplace=False),
+                        inplace=True)
             
 
         # multiply 64 * 10 at once
@@ -166,7 +173,6 @@ class ResNetHEAAN():
         return self.forward(img_tensor)
 
     ##############################
-
     def forward_convbn_par_fhe(self, cnn_layer, bn_layer, ctx, ins, kernels=[3,3]):
         U, ins, outs = get_conv_params(cnn_layer, ins)
         return self.MultParConvBN_fhe(ctx, U, bn_layer, ins, outs, kernels)
@@ -222,9 +228,6 @@ class ResNetHEAAN():
 
         ct_d = self.gen_new_ctxt() ####
         
-        #if debug:
-        #    tmp = self.hec.decrypt(ct_a)
-        #    print("ct_a", ct_a.logp, ct_a.logq, tmp[::1000])
         ev.modDownTo(ct_d, ct_a.logq - 2*ct_d.logp)
         if debug: print("ct_d", ct_d.logp, ct_d.logq)
         ct = []
@@ -233,45 +236,21 @@ class ResNetHEAAN():
             temp = []
             for i2 in range(fw):
                 lrots = int((-(ki**2)*wi*(i1-(fh-1)/2) - ki*(i2-(fw-1)/2))) #both neg in the paper, git -,+
-                #print("i1,i2, lrots", i1,i2, lrots, flush=True)
                 temp.append(ev.lrot(ct_a, -lrots, inplace=False))
                 if lrots!=0:
                     nrots = nrots+ 1#____________________________________ROTATION
-                #if debug:
-                #    tmp = self.hec.decrypt(temp[-1])
-                    #print("temp  ----  ", temp[-1].logp, 
-                    #        temp[-1].logq, tmp[::1000])
-                #print("ct\n", len(temp), flush=True)
             ct.append(temp)
-            #print("ct\n", len(ct), flush=True)
-        #return ct
 
         for i3 in range(q):
-            #print("aaaaa", flush=True)
             ct_b = self.gen_new_ctxt() ####
-            #print("bbbbbb", flush=True)
             ev.modDownTo(ct_b, ct[0][0].logq - ct_b.logp)
-            #if debug: 
-            #    print("CT_B", ct_b.logp, ct_b.logq, flush=True)
-                #tmp = self.hec.decrypt(ct_b)
-                #print("CT_B   ----  ", ct_b.logp, 
-                #            ct_b.logq, tmp[::1000])
 
-            #print("cccccc", flush=True)
             for i1 in range(fh):
                 for i2 in range(fw):
-                    #print("xxxxxxxxxx", flush=True)
                     w = ParMultWgt(U,i1,i2,i3,ins,co,kernels,nslots)
-                    #w_enc = encoder.encode(w)#, ct[i1][i2].logp) ####
-                    #print("ct[i1][i2]\n", ct[i1][i2].logp, flush=True)
-                    #print("w",w)
                     tmp = ev.multByVec(ct[i1][i2], w, inplace=False)
-                    #print("dddddd", flush=True)
                     ev.rescale(tmp)
-                    #print("eeeeee", flush=True)
                     ev.add(ct_b, tmp, inplace=True) ####
-                    #print("fffff", flush=True)
-
             
             ct_c,nrots0 = self.SumSlots(ct_b, ki,              1)
             ct_c,nrots1 = self.SumSlots(ct_c, ki,          ki*wi)
