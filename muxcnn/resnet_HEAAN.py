@@ -34,18 +34,18 @@ class ResNetHEAAN():
     def _set_activation(self, *args, **kwargs):
         self.activation = ApprRelu_HEAAN(self.hec, *args, **kwargs)
 
-    def forward(self, img_tensor, ki=1, hi=32, wi=32):
+    def forward(self, img_tensor, ki=1, hi=32, wi=32, debug=False):
         model = self.torch_model
         ctxt, outs0 = self.forward_early(img_tensor, ki, hi, wi)
         #self.hec.rescale(ctxt)
-        print(" - - - - After early", ctxt)
+        if debug: print(" - - - - After early", ctxt)
         # Basic blocks
         ctxt, outs1 = self.forward_bb(model.layer1[0], ctxt, outs0)
-        print("After first block\n\n")
+        if debug: print("After first block\n\n")
         ctxt, outs2 = self.forward_bb(model.layer2[0], ctxt, outs1)
-        print("After second block\n\n")
+        if debug: print("After second block\n\n")
         ctxt, outs3 = self.forward_bb(model.layer3[0], ctxt, outs2)
-        print("After third block\n\n")
+        if debug: print("After third block\n\n")
         ctxt = self.AVGPool(ctxt, outs3, self.nslots) # Gloval pooling
         return self.forward_linear(ctxt, model.linear)
 
@@ -62,7 +62,7 @@ class ResNetHEAAN():
         ct_a = MultParPack(imgl, ins0)
         return self.hec.encrypt(ct_a)
 
-    def forward_early(self, ct_a, ki, hi, wi, debug=True):
+    def forward_early(self, ct_a, ki, hi, wi, debug=False):
         model = self.torch_model
         _, ins0, outs0 = get_conv_params(model.conv1, {'k':ki, 'h':hi, 'w':wi})
         ctxt = self.forward_convbn_par_fhe(model.conv1, 
@@ -72,7 +72,7 @@ class ResNetHEAAN():
         ctxt = self.activation(ctxt)
         return ctxt, outs0 
 
-    def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in, debug=True):
+    def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in, debug=False):
         
         # Bootstrap before shortcut
         if ctxt_in.logq <= 80:
@@ -82,20 +82,21 @@ class ResNetHEAAN():
         shortcut = he.Ciphertext(ctxt_in)
 
         _, ins, outs = get_conv_params(bb.conv1, outs_in)
-        print("ZZZZZZZZZZZZZZZZZZZZZZ  11")
+        if debug: print("ZZZZZZZZZZZZZZZZZZZZZZ  11")
         ctxt = self.forward_convbn_par_fhe(bb.conv1,
                                         bb.bn1, ctxt_in, ins)
-        print("ZZZZZZZZZZZZZZZZZZZZZZ  22")
-        print("11111", ctxt)
+        if debug: 
+            print("11111", ctxt)
         ctxt = self.activation(ctxt)
-        print("After activation", ctxt)
-        #self.hec.rescale(ctxt)
-        print(self.hec.decrypt(ctxt))
+        if debug: 
+            print("After activation", ctxt)
+            print(self.hec.decrypt(ctxt))
         _, ins, outs = get_conv_params(bb.conv2, outs)
         ctxt = self.forward_convbn_par_fhe(bb.conv2,
                                         bb.bn2, ctxt, ins)
-        print("\n\n ddddddd")
-        print(self.hec.decrypt(ctxt))
+        if debug:
+            print("\n\n ddddddd")
+            print(self.hec.decrypt(ctxt))
         # Shortcut
         if len(bb.shortcut) > 0:
             convl, bnl = bb.shortcut
@@ -109,20 +110,20 @@ class ResNetHEAAN():
 
         # Add shortcut
         if ctxt.logp > shortcut.logp:
-            print("ctxt > shortcut")
+            if debug: print("ctxt > shortcut")
             self.hec.rescale(ctxt, shortcut.logp)
         elif ctxt.logp < shortcut.logp:
-            print("shortcut > ctxt")
+            if debug: print("shortcut > ctxt")
             self.hec.rescale(shortcut, ctxt.logp)
         
         if ctxt.logq > shortcut.logq:
             self.hec.match_mod(ctxt, shortcut)
         elif ctxt.logq < shortcut.logq:
             self.hec.match_mod(shortcut, ctxt)
-
-        print(ctxt, shortcut)
-        print(self.hec.decrypt(ctxt))
-        print(self.hec.decrypt(shortcut))
+        if debug: 
+            print(ctxt, shortcut)
+            print(self.hec.decrypt(ctxt))
+            print(self.hec.decrypt(shortcut))
         
         self.hec.add(ctxt, shortcut)
         #ctxt += shortcut
@@ -202,7 +203,7 @@ class ResNetHEAAN():
     def MultParConvBN_fhe(self, ct_a, U, bn_layer, ins:Dict, outs:Dict,
                         kernels=[3,3],
                         nslots=2**15, 
-                        scale_factor=1, debug=True):
+                        scale_factor=1, debug=False):
         """Consumes two mults"""
         if ct_a.logq <= 80:
             ct_a = self.hec.bootstrap2(ct_a)

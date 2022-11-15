@@ -53,7 +53,7 @@ class ApprSign_FHE():
                 xmax=1,
                 min_depth=True, 
                 min_mult=False,
-                debug=True):
+                debug=False):
         self.hec = hec
         self.alpha = alpha
         self.margin = margin
@@ -121,38 +121,43 @@ class ApprRelu_HEAAN(ApprSign_FHE):
         hec = self.hec
         out = ApprSign_FHE.__call__(self, he.Ciphertext(xin))
         
-        print("After ApprSign", out.logp, out.logq)
-        tmp = self.hec.decrypt(out)
-        print(tmp, flush=True)
-        print("min max", tmp.min(), tmp.max(), flush=True)
+        if self.debug: 
+            print("After ApprSign", out.logp, out.logq)
+            tmp = self.hec.decrypt(out)
+            print(tmp, flush=True)
+            print("min max", tmp.min(), tmp.max(), flush=True)
         
         tmp = hec.addConst(out, np.repeat(1, hec.parms.n), inplace=False)
         
-        print("After +1", tmp.logp, tmp.logq)
-        zzz = self.hec.decrypt(tmp)
-        print(zzz, flush=True)
-        print("min max", zzz.min(), zzz.max(), flush=True)
+        if self.debug: 
+            print("After +1", tmp.logp, tmp.logq)
+            zzz = self.hec.decrypt(tmp)
+            print(zzz, flush=True)
+            print("min max", zzz.min(), zzz.max(), flush=True)
 
         tmp = hec.multByVec(tmp, np.repeat(1/2, hec.parms.n), inplace=False)
         
-        print("After *1", tmp.logp, tmp.logq)
-        zzz = self.hec.decrypt(tmp)
-        print(zzz, flush=True)
-        print("min max", zzz.min(), zzz.max(), flush=True)
+        if self.debug: 
+            print("After *1", tmp.logp, tmp.logq)
+            zzz = self.hec.decrypt(tmp)
+            print(zzz, flush=True)
+            print("min max", zzz.min(), zzz.max(), flush=True)
 
         hec.rescale(tmp)
         
-        print(xin, tmp)
+        if self.debug: 
+            print(xin, tmp)
         if xin.logq > tmp.logq:
             hec.match_mod(xin, tmp)
         elif xin.logq < tmp.logq:
             hec.match_mod(tmp, xin)
         hec.mult(xin, tmp, inplace=True)
 
-        print("After mult", xin.logp, xin.logq)
-        zzz = self.hec.decrypt(xin)
-        print(zzz, flush=True)
-        print("min max", zzz.min(), zzz.max(), flush=True)
+        if self.debug: 
+            print("After mult", xin.logp, xin.logq)
+            zzz = self.hec.decrypt(xin)
+            print(zzz, flush=True)
+            print("min max", zzz.min(), zzz.max(), flush=True)
 
         hec.rescale(xin)
         return xin
