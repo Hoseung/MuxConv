@@ -53,7 +53,7 @@ class ApprSign_FHE():
                 xmax=1,
                 min_depth=True, 
                 min_mult=False,
-                debug=True):
+                debug=False):
         self.hec = hec
         self.alpha = alpha
         self.margin = margin
@@ -89,8 +89,8 @@ class ApprSign_FHE():
         
         self.funs = _appr_sign_funs(degrees, xmin, xmax, 
                 margin=self.margin, eps=self.eps)
-        print("functions set")
-        print(f"degrees = {self.degrees}, margin = {self.margin}, eps = {self.eps}") 
+        if self.debug: print("function approximators set")
+        if self.debug: print(f"degrees = {self.degrees}, margin = {self.margin}, eps = {self.eps}") 
 
     def __call__(self, xin):
         if self.funs is not None:

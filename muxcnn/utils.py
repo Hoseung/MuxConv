@@ -11,8 +11,11 @@ def load_params(model, fn_param, device):
     trained_param = {key : value.cpu()   for key,value in trained_param.items()}
     model.load_state_dict(trained_param)
 
-def load_img(fname, hi=None, wi=None):
+def load_img(fname, hi=None, wi=None, show=False):
     image = Image.open(fname)
+    if show:
+        plt.imshow(image)
+        plt.show()
     transform = transforms.Compose([
         transforms.Resize((hi,wi)),
         transforms.ToTensor(),
@@ -175,3 +178,8 @@ def plot_4x4(img, co=None, fn=None):
     if fn is not None:
         plt.savefig(fn)
         plt.close()
+
+def decrypt_result(hec, result):
+    dec = hec.decrypt(result)
+    class_num = np.argmax(dec[:10])
+    return class_num
