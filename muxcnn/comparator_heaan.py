@@ -61,7 +61,7 @@ class ApprSign_FHE():
         self.xmin = xmin
         self.xmax = xmax
         self.min_depth = min_depth
-        self.min_mult = min_mult
+        self.min_mult = ~min_depth
         self.funs = None
         self.degrees = None
         self.debug=debug
