@@ -53,7 +53,7 @@ class ApprSign_FHE():
                 xmax=1,
                 min_depth=True, 
                 min_mult=False,
-                debug=False):
+                debug=True):
         self.hec = hec
         self.alpha = alpha
         self.margin = margin

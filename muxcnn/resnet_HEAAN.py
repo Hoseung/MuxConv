@@ -31,7 +31,7 @@ class ResNetHEAAN():
     def _set_activation(self, eps=0.01, margin=0.0005, *args, **kwargs):
         self.activation = ApprRelu_HEAAN(self.hec, eps=eps, margin=margin, *args, **kwargs)
 
-    def forward(self, ctxt, ki=1, hi=32, wi=32, debug=False, verbose=True):
+    def forward(self, ctxt, ki=1, hi=32, wi=32, debug=True, verbose=True):
         t0 = time()
         if verbose: print("[FHE_CNN] Inference started...")
         model = self.torch_model
@@ -69,7 +69,7 @@ class ResNetHEAAN():
         ct_a = MultParPack(imgl, ins0)
         return self.hec.encrypt(ct_a)
 
-    def forward_early(self, ct_a, ki, hi, wi, debug=False, verbose=True):
+    def forward_early(self, ct_a, ki, hi, wi, debug=True, verbose=True):
         model = self.torch_model
         _, ins0, outs0 = get_conv_params(model.conv1, {'k':ki, 'h':hi, 'w':wi})
 
@@ -85,7 +85,7 @@ class ResNetHEAAN():
         if verbose: print("[FHE_CNN_EARLY] ReLU hinished in {:.2f} sec".format(time()-t0))
         return ctxt, outs0 
 
-    def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in, debug=False, verbose=True):
+    def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in, debug=True, verbose=True):
         # Bootstrap before shortcut
         if ctxt_in.logq <= 80:
             ctxt_in = self.hec.bootstrap2(ctxt_in)
@@ -232,7 +232,7 @@ class ResNetHEAAN():
     def MultParConvBN_fhe(self, ct_a, U, bn_layer, ins:Dict, outs:Dict,
                         kernels=[3,3],
                         nslots=2**15, 
-                        scale_factor=1, debug=False):
+                        scale_factor=1, debug=True):
         """Consumes two mults"""
         if ct_a.logq <= 80:
             ct_a = self.hec.bootstrap2(ct_a)
