@@ -4,8 +4,8 @@ import torch.nn as nn
 from typing import Dict
 from muxcnn.models import ResNet20
 from .comparator_heaan import ApprRelu_HEAAN
-from hemul import loader 
-he = loader.load()
+from hemul import loader
+he = loader.he
 from muxcnn.utils import get_q, get_conv_params, get_channel_last
 from muxcnn.hecnn_par import (MultParPack, 
                                 parMuxBN, 
@@ -17,8 +17,8 @@ from time import time
 class ResNetHEAAN():
     def __init__(self, model, hec, 
                     alpha = 14, 
-                    xmin=-40, 
-                    xmax=40, 
+                    xmin=-60, 
+                    xmax=60, 
                     min_depth=True, 
                     ):
         self.torch_model = model
@@ -39,13 +39,13 @@ class ResNetHEAAN():
         #self.hec.rescale(ctxt)
         # Basic blocks
         t1 = time()
-        ctxt, outs1 = self.forward_bb(model.layer1[0], ctxt, outs0)
+        ctxt, outs1 = self.forward_bb(model.layer1[0], ctxt, outs0, debug=debug)
         if verbose: print("[FHE_CNN] First Basic Block finished in {:.2f} sec\n".format(time()-t1))
         t1 = time()
-        ctxt, outs2 = self.forward_bb(model.layer2[0], ctxt, outs1)
+        ctxt, outs2 = self.forward_bb(model.layer2[0], ctxt, outs1, debug=debug)
         if verbose: print("[FHE_CNN] Second Basic Block finished in {:.2f} sec\n".format(time()-t1))
         t1 = time()
-        ctxt, outs3 = self.forward_bb(model.layer3[0], ctxt, outs2)
+        ctxt, outs3 = self.forward_bb(model.layer3[0], ctxt, outs2, debug=debug)
         if verbose: print("[FHE_CNN] Third Basic Block finished in {:.2f} sec\n".format(time()-t1))
         t1 = time()
         ctxt = self.AVGPool(ctxt, outs3, self.nslots) # Gloval pooling
