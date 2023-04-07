@@ -1,9 +1,6 @@
 import numpy as np
-#from hemul import loader 
-from hemul import loader
-he = loader.he
-#he = loader.load()
-#import hemul.HEAAN as he
+from hemul import loader 
+he = loader.load()
 from hemul.comparator import _appr_sign_funs
 
 # degrees from i=1 to k

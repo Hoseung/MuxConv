@@ -4,8 +4,8 @@ import torch.nn as nn
 from typing import Dict
 from muxcnn.models import ResNet20
 from .comparator_heaan import ApprRelu_HEAAN
-from hemul import loader
-he = loader.he
+from hemul import loader 
+he = loader.load()
 from muxcnn.utils import get_q, get_conv_params, get_channel_last
 from muxcnn.hecnn_par import (MultParPack, 
                                 parMuxBN, 
@@ -14,28 +14,38 @@ from muxcnn.hecnn_par import (MultParPack,
                                 ParMultWgt)
 from muxcnn.hecnn_par import select_AVG
 from time import time
+
+def relu(x):
+    x[x<0] = 0
+    return x
 class ResNetHEAAN():
     def __init__(self, model, hec, 
                     alpha = 14, 
-                    xmin=-60, 
-                    xmax=60, 
+                    xmin=-40, 
+                    xmax=40, 
                     min_depth=True, 
+                    debug=False
                     ):
         self.torch_model = model
         self.torch_model.eval()
         self.hec = hec
         self.nslots = 2**hec.parms.logn
         self.alpha=alpha
+        self.debug=debug
         self._set_activation(alpha=self.alpha, xmin=xmin, xmax=xmax, min_depth=min_depth)
         
-    def _set_activation(self, eps=0.01, margin=0.0005, *args, **kwargs):
-        self.activation = ApprRelu_HEAAN(self.hec, eps=eps, margin=margin, *args, **kwargs)
+    def _set_activation(self, eps=0.01, margin=0.0005, *args, **kwargs):        
+        if self.debug:
+            self._activation_org = relu
+        else:
+            self.activation = ApprRelu_HEAAN(self.hec, eps=eps, margin=margin, *args, **kwargs)
 
-    def forward(self, ctxt, ki=1, hi=32, wi=32, debug=False, verbose=True):
+    def forward(self, ctxt, ki=1, hi=32, wi=32, debug=None, verbose=True):
+        if debug is None: debug = self.debug
         t0 = time()
         if verbose: print("[FHE_CNN] Inference started...")
         model = self.torch_model
-        ctxt, outs0 = self.forward_early(ctxt, ki, hi, wi)
+        ctxt, outs0 = self.forward_early(ctxt, ki, hi, wi, debug=debug)
         #self.hec.rescale(ctxt)
         # Basic blocks
         t1 = time()
@@ -49,9 +59,13 @@ class ResNetHEAAN():
         if verbose: print("[FHE_CNN] Third Basic Block finished in {:.2f} sec\n".format(time()-t1))
         t1 = time()
         ctxt = self.AVGPool(ctxt, outs3, self.nslots) # Gloval pooling
+        if debug: 
+            print("[After AVGPool", self.hec.decrypt(ctxt))
         if verbose: print("[FHE_CNN] Global AVGPool finished in {:.2f} sec\n".format(time()-t1))
         t1 = time()
         result = self.forward_linear(ctxt, model.linear)
+        if debug: 
+            print("[After Linear", self.hec.decrypt(result))
         if verbose: print("[FHE_CNN] FullyConnected finished in {:.2f} sec\n".format(time()-t1))
         if verbose: print("[FHE_CNN] Inference finished in {:.2f} sec\n".format(time()-t0))
         return result
@@ -81,7 +95,12 @@ class ResNetHEAAN():
 
         t0 = time()
         if verbose: print("[FHE_CNN_EARLY] ReLU started...")
-        ctxt = self.activation(ctxt)
+        if debug: 
+            tmp = self.hec.decrypt(ctxt)
+            activated = self._activation_org(tmp)
+            ctxt = self.hec.encrypt(activated)
+        else:
+            ctxt = self.activation(ctxt)
         if verbose: print("[FHE_CNN_EARLY] ReLU hinished in {:.2f} sec".format(time()-t0))
         return ctxt, outs0 
 
@@ -101,13 +120,17 @@ class ResNetHEAAN():
         if verbose: print("[FHE_CNN BasicBlock] ConvBN1 finished in {:.2f} sec".format(time()-t0))
         t0 = time()
         if verbose: print("[FHE_CNN BasicBlock] ReLU1 started...")
-        ctxt = self.activation(ctxt)
+        if debug: 
+            tmp = self.hec.decrypt(ctxt)
+            activated = self._activation_org(tmp)
+            ctxt = self.hec.encrypt(activated)
+        else:
+            ctxt = self.activation(ctxt)    
+        #ctxt = self.activation(ctxt)
         if verbose: print("[FHE_CNN BasicBlock] ReLU1 finished in {:.2f} sec".format(time()-t0))
-        #pickle.dump(self.hec.decrypt(ctxt), open("ctxt2.pkl", "wb"))
-        #print("dumped ctxt2")
         if debug: 
             print("After activation", ctxt)
-            print(self.hec.decrypt(ctxt))
+            print("FHE result:", self.hec.decrypt(ctxt)[:100])
         _, ins, outs = get_conv_params(bb.conv2, outs)
         t0 = time()
         if verbose: print("[FHE_CNN BasicBlock] ConvBN2 started...")
@@ -155,7 +178,12 @@ class ResNetHEAAN():
         t0 = time()
         if verbose: print("[FHE_CNN BasicBlock] ReLU2 started...")
         # Activation
-        ctxt = self.activation(ctxt)
+        if debug: 
+            tmp = self.hec.decrypt(ctxt)
+            activated = self._activation_org(tmp)
+            ctxt = self.hec.encrypt(activated)
+        else:
+            ctxt = self.activation(ctxt)
         if verbose: print("[FHE_CNN BasicBlock] ReLU2 finished in {:.2f} sec".format(time()-t0))
 
         #pickle.dump(self.hec.decrypt(ctxt), open("ctxt5.pkl", "wb"))
