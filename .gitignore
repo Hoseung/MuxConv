@@ -16,3 +16,7 @@ ipython_config.py
 data/cifar-*
 
 *.pyc 
+RotKey_*.txt
+*Key.txt
+CIFAR10
+*.tar.gz
