@@ -14,5 +14,9 @@ profile_default/
 ipython_config.py
 
 data/cifar-*
+CIFAR10
+*.tar.gz
 
 *.pyc 
+RotKey*.txt
+*Key.txt
