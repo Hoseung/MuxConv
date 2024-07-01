@@ -88,6 +88,23 @@ class ResNet(nn.Module):
         print("before softmax", out)
         return F.log_softmax(out, dim=1)
 
+    def debug(self, x):
+        out = self.activation(self.bn1(self.conv1(x)))
+        print("DEBUG 1", out)
+        out = self.layer1(out)
+        print("DEBUG 2", out)
+        out = self.layer2(out)
+        print("DEBUG 3", out)
+        out = self.layer3(out)
+        print("DEBUG 4", out)
+        out = self.avgpool(out)
+        print("DEBUG 5", out)
+        out = torch.flatten(out, 1)
+        print("DEBUG 6", out)
+        out = self.linear(out)
+        print("DEBUG 7", out)
+        print("before softmax", out)
+        return F.log_softmax(out, dim=1)
 
 def ResNet20(activation=F.relu):
     return ResNet(BasicBlock, [2, 2, 2], activation=activation)

@@ -1,7 +1,6 @@
 import numpy as np
 from hemul import loader 
 he = loader.load()
-#import hemul.HEAAN as he
 from hemul.comparator import _appr_sign_funs
 
 # degrees from i=1 to k
@@ -48,12 +47,12 @@ class ApprSign_FHE():
                  hec,
                 alpha=12, 
                 margin = 0.03, 
-                eps=0.02, 
+                eps=0.01, 
                 xmin=-1,
                 xmax=1,
                 min_depth=True, 
                 min_mult=False,
-                debug=True):
+                debug=False):
         self.hec = hec
         self.alpha = alpha
         self.margin = margin
@@ -61,7 +60,7 @@ class ApprSign_FHE():
         self.xmin = xmin
         self.xmax = xmax
         self.min_depth = min_depth
-        self.min_mult = min_mult
+        self.min_mult = ~min_depth
         self.funs = None
         self.degrees = None
         self.debug=debug
@@ -89,8 +88,8 @@ class ApprSign_FHE():
         
         self.funs = _appr_sign_funs(degrees, xmin, xmax, 
                 margin=self.margin, eps=self.eps)
-        print("functions set")
-        print(f"degrees = {self.degrees}, margin = {self.margin}, eps = {self.eps}") 
+        if self.debug: print("function approximators set")
+        if self.debug: print(f"degrees = {self.degrees}, margin = {self.margin}, eps = {self.eps}") 
 
     def __call__(self, xin):
         if self.funs is not None:
@@ -119,40 +118,47 @@ class ApprRelu_HEAAN(ApprSign_FHE):
     
     def __call__(self, xin):
         hec = self.hec
+        if xin.logq <= (3 * self.hec.parms.logp):
+            xin = self.hec.bootstrap2(xin)
         out = ApprSign_FHE.__call__(self, he.Ciphertext(xin))
         
-        print("After ApprSign", out.logp, out.logq)
-        tmp = self.hec.decrypt(out)
-        print(tmp, flush=True)
-        print("min max", tmp.min(), tmp.max(), flush=True)
+        if self.debug: 
+            print("After ApprSign", out.logp, out.logq)
+            tmp = self.hec.decrypt(out)
+            print(tmp, flush=True)
+            print("min max", tmp.min(), tmp.max(), flush=True)
         
         tmp = hec.addConst(out, np.repeat(1, hec.parms.n), inplace=False)
         
-        print("After +1", tmp.logp, tmp.logq)
-        zzz = self.hec.decrypt(tmp)
-        print(zzz, flush=True)
-        print("min max", zzz.min(), zzz.max(), flush=True)
+        if self.debug: 
+            print("After +1", tmp.logp, tmp.logq)
+            zzz = self.hec.decrypt(tmp)
+            print(zzz, flush=True)
+            print("min max", zzz.min(), zzz.max(), flush=True)
 
         tmp = hec.multByVec(tmp, np.repeat(1/2, hec.parms.n), inplace=False)
         
-        print("After *1", tmp.logp, tmp.logq)
-        zzz = self.hec.decrypt(tmp)
-        print(zzz, flush=True)
-        print("min max", zzz.min(), zzz.max(), flush=True)
+        if self.debug: 
+            print("After *1", tmp.logp, tmp.logq)
+            zzz = self.hec.decrypt(tmp)
+            print(zzz, flush=True)
+            print("min max", zzz.min(), zzz.max(), flush=True)
 
         hec.rescale(tmp)
         
-        print(xin, tmp)
+        if self.debug: 
+            print(xin, tmp)
         if xin.logq > tmp.logq:
             hec.match_mod(xin, tmp)
         elif xin.logq < tmp.logq:
             hec.match_mod(tmp, xin)
         hec.mult(xin, tmp, inplace=True)
 
-        print("After mult", xin.logp, xin.logq)
-        zzz = self.hec.decrypt(xin)
-        print(zzz, flush=True)
-        print("min max", zzz.min(), zzz.max(), flush=True)
+        if self.debug: 
+            print("After mult", xin.logp, xin.logq)
+            zzz = self.hec.decrypt(xin)
+            print(zzz, flush=True)
+            print("min max", zzz.min(), zzz.max(), flush=True)
 
         hec.rescale(xin)
         return xin

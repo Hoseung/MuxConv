@@ -3,7 +3,13 @@ README.md
 pyproject.toml
 setup.cfg
 muxcnn/__init__.py
+muxcnn/comparator_heaan.py
+muxcnn/etc.py
 muxcnn/hecnn.py
+muxcnn/hecnn_par.py
+muxcnn/resnet_HEAAN.py
+muxcnn/resnet_fhe.py
+muxcnn/resnet_muxconv.py
 muxcnn/utils.py
 muxcnn.egg-info/PKG-INFO
 muxcnn.egg-info/SOURCES.txt

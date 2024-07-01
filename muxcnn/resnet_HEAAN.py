@@ -6,8 +6,6 @@ from muxcnn.models import ResNet20
 from .comparator_heaan import ApprRelu_HEAAN
 from hemul import loader 
 he = loader.load()
-#import hemul.HEAAN as he
-#from hemul.utils import key_hash
 from muxcnn.utils import get_q, get_conv_params, get_channel_last
 from muxcnn.hecnn_par import (MultParPack, 
                                 parMuxBN, 
@@ -15,39 +13,62 @@ from muxcnn.hecnn_par import (MultParPack,
                                 Vec, 
                                 ParMultWgt)
 from muxcnn.hecnn_par import select_AVG
+from time import time
 
-
+def relu(x):
+    x[x<0] = 0
+    return x
 class ResNetHEAAN():
     def __init__(self, model, hec, 
-                    alpha=15, 
-                    xmin=-50, 
-                    xmax=50, 
-                    min_depth=True):
+                    alpha = 14, 
+                    xmin=-40, 
+                    xmax=40, 
+                    min_depth=True, 
+                    debug=False
+                    ):
         self.torch_model = model
         self.torch_model.eval()
         self.hec = hec
         self.nslots = 2**hec.parms.logn
         self.alpha=alpha
+        self.debug=debug
         self._set_activation(alpha=self.alpha, xmin=xmin, xmax=xmax, min_depth=min_depth)
         
-        
-    def _set_activation(self, *args, **kwargs):
-        self.activation = ApprRelu_HEAAN(self.hec, *args, **kwargs)
+    def _set_activation(self, eps=0.01, margin=0.0005, *args, **kwargs):        
+        if self.debug:
+            self._activation_org = relu
+        else:
+            self.activation = ApprRelu_HEAAN(self.hec, eps=eps, margin=margin, *args, **kwargs)
 
-    def forward(self, img_tensor, ki=1, hi=32, wi=32):
+    def forward(self, ctxt, ki=1, hi=32, wi=32, debug=None, verbose=True):
+        if debug is None: debug = self.debug
+        t0 = time()
+        if verbose: print("[FHE_CNN] Inference started...")
         model = self.torch_model
-        ctxt, outs0 = self.forward_early(img_tensor, ki, hi, wi)
+        ctxt, outs0 = self.forward_early(ctxt, ki, hi, wi, debug=debug)
         #self.hec.rescale(ctxt)
-        print(" - - - - After early", ctxt)
         # Basic blocks
-        ctxt, outs1 = self.forward_bb(model.layer1[0], ctxt, outs0)
-        print("After first block\n\n")
-        ctxt, outs2 = self.forward_bb(model.layer2[0], ctxt, outs1)
-        print("After second block\n\n")
-        ctxt, outs3 = self.forward_bb(model.layer3[0], ctxt, outs2)
-        print("After third block\n\n")
+        t1 = time()
+        ctxt, outs1 = self.forward_bb(model.layer1[0], ctxt, outs0, debug=debug)
+        if verbose: print("[FHE_CNN] First Basic Block finished in {:.2f} sec\n".format(time()-t1))
+        t1 = time()
+        ctxt, outs2 = self.forward_bb(model.layer2[0], ctxt, outs1, debug=debug)
+        if verbose: print("[FHE_CNN] Second Basic Block finished in {:.2f} sec\n".format(time()-t1))
+        t1 = time()
+        ctxt, outs3 = self.forward_bb(model.layer3[0], ctxt, outs2, debug=debug)
+        if verbose: print("[FHE_CNN] Third Basic Block finished in {:.2f} sec\n".format(time()-t1))
+        t1 = time()
         ctxt = self.AVGPool(ctxt, outs3, self.nslots) # Gloval pooling
-        return self.forward_linear(ctxt, model.linear)
+        if debug: 
+            print("[After AVGPool", self.hec.decrypt(ctxt))
+        if verbose: print("[FHE_CNN] Global AVGPool finished in {:.2f} sec\n".format(time()-t1))
+        t1 = time()
+        result = self.forward_linear(ctxt, model.linear)
+        if debug: 
+            print("[After Linear", self.hec.decrypt(result))
+        if verbose: print("[FHE_CNN] FullyConnected finished in {:.2f} sec\n".format(time()-t1))
+        if verbose: print("[FHE_CNN] Inference finished in {:.2f} sec\n".format(time()-t0))
+        return result
 
     def pack_img_ctxt(self, img_tensor):
         """ For convenience
@@ -62,18 +83,28 @@ class ResNetHEAAN():
         ct_a = MultParPack(imgl, ins0)
         return self.hec.encrypt(ct_a)
 
-    def forward_early(self, ct_a, ki, hi, wi, debug=True):
+    def forward_early(self, ct_a, ki, hi, wi, debug=False, verbose=True):
         model = self.torch_model
         _, ins0, outs0 = get_conv_params(model.conv1, {'k':ki, 'h':hi, 'w':wi})
+
+        t0 = time()
+        if verbose: print("[FHE_CNN_EARLY] ConvBN started...")
         ctxt = self.forward_convbn_par_fhe(model.conv1, 
                                         model.bn1, ct_a, ins0)
-        #print("Check 1")
-        #print(self.hec.decrypt(ctxt))
-        ctxt = self.activation(ctxt)
+        if verbose: print("[FHE_CNN_EARLY] ConvBN finished in {:.2f} sec".format(time()-t0))
+
+        t0 = time()
+        if verbose: print("[FHE_CNN_EARLY] ReLU started...")
+        if debug: 
+            tmp = self.hec.decrypt(ctxt)
+            activated = self._activation_org(tmp)
+            ctxt = self.hec.encrypt(activated)
+        else:
+            ctxt = self.activation(ctxt)
+        if verbose: print("[FHE_CNN_EARLY] ReLU hinished in {:.2f} sec".format(time()-t0))
         return ctxt, outs0 
 
-    def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in, debug=True):
-        
+    def forward_bb(self, bb:ResNet20.BasicBlock, ctxt_in, outs_in, debug=False, verbose=True):
         # Bootstrap before shortcut
         if ctxt_in.logq <= 80:
             ctxt_in = self.hec.bootstrap2(ctxt_in)
@@ -82,56 +113,84 @@ class ResNetHEAAN():
         shortcut = he.Ciphertext(ctxt_in)
 
         _, ins, outs = get_conv_params(bb.conv1, outs_in)
-        print("ZZZZZZZZZZZZZZZZZZZZZZ  11")
+        t0 = time() 
+        if verbose: print("[FHE_CNN BasicBlock] ConvBN1 started...")
         ctxt = self.forward_convbn_par_fhe(bb.conv1,
                                         bb.bn1, ctxt_in, ins)
-        print("ZZZZZZZZZZZZZZZZZZZZZZ  22")
-        print("11111", ctxt)
-        ctxt = self.activation(ctxt)
-        print("After activation", ctxt)
-        #self.hec.rescale(ctxt)
-        print(self.hec.decrypt(ctxt))
+        if verbose: print("[FHE_CNN BasicBlock] ConvBN1 finished in {:.2f} sec".format(time()-t0))
+        t0 = time()
+        if verbose: print("[FHE_CNN BasicBlock] ReLU1 started...")
+        if debug: 
+            tmp = self.hec.decrypt(ctxt)
+            activated = self._activation_org(tmp)
+            ctxt = self.hec.encrypt(activated)
+        else:
+            ctxt = self.activation(ctxt)    
+        #ctxt = self.activation(ctxt)
+        if verbose: print("[FHE_CNN BasicBlock] ReLU1 finished in {:.2f} sec".format(time()-t0))
+        if debug: 
+            print("After activation", ctxt)
+            print("FHE result:", self.hec.decrypt(ctxt)[:100])
         _, ins, outs = get_conv_params(bb.conv2, outs)
+        t0 = time()
+        if verbose: print("[FHE_CNN BasicBlock] ConvBN2 started...")
         ctxt = self.forward_convbn_par_fhe(bb.conv2,
                                         bb.bn2, ctxt, ins)
-        print("\n\n ddddddd")
-        print(self.hec.decrypt(ctxt))
+        if verbose: print("[FHE_CNN BasicBlock] ConvBN2 finished in {:.2f} sec".format(time()-t0))    
+        #pickle.dump(self.hec.decrypt(ctxt), open("ctxt3.pkl", "wb"))
+        if debug:
+            print("\n\n ddddddd")
+            print(self.hec.decrypt(ctxt))
         # Shortcut
         if len(bb.shortcut) > 0:
             convl, bnl = bb.shortcut
             _, ins_, _ = get_conv_params(convl, outs_in)
+            t0 = time()
+            if verbose: print("[FHE_CNN BasicBlock] ConvBN_shortcut started...")
             shortcut = self.forward_convbn_par_fhe(convl, bnl, shortcut, ins_, 
                                                 convl.kernel_size)
+            if verbose: print("[FHE_CNN BasicBlock] ConvBN_shortcut finished in {:.2f} sec".format(time()-t0))
+        #pickle.dump(self.hec.decrypt(shortcut), open("shortcut.pkl", "wb"))
         if debug:
-            print("forward_bb")
-            print("Shortcut", shortcut)
+            print("[forward_bb] Shortcut", shortcut)
             print("ctxt", ctxt)
 
         # Add shortcut
         if ctxt.logp > shortcut.logp:
-            print("ctxt > shortcut")
+            if debug: print("ctxt > shortcut")
             self.hec.rescale(ctxt, shortcut.logp)
         elif ctxt.logp < shortcut.logp:
-            print("shortcut > ctxt")
+            if debug: print("shortcut > ctxt")
             self.hec.rescale(shortcut, ctxt.logp)
         
         if ctxt.logq > shortcut.logq:
             self.hec.match_mod(ctxt, shortcut)
         elif ctxt.logq < shortcut.logq:
             self.hec.match_mod(shortcut, ctxt)
-
-        print(ctxt, shortcut)
-        print(self.hec.decrypt(ctxt))
-        print(self.hec.decrypt(shortcut))
+        if debug: 
+            print(ctxt, shortcut)
+            print(self.hec.decrypt(ctxt))
+            print(self.hec.decrypt(shortcut))
         
-        self.hec.add(ctxt, shortcut)
+        self.hec.add(ctxt, shortcut, inplace=True)
+        #pickle.dump(self.hec.decrypt(ctxt), open("ctxt4.pkl", "wb"))
         #ctxt += shortcut
+        t0 = time()
+        if verbose: print("[FHE_CNN BasicBlock] ReLU2 started...")
         # Activation
-        ctxt = self.activation(ctxt)
+        if debug: 
+            tmp = self.hec.decrypt(ctxt)
+            activated = self._activation_org(tmp)
+            ctxt = self.hec.encrypt(activated)
+        else:
+            ctxt = self.activation(ctxt)
+        if verbose: print("[FHE_CNN BasicBlock] ReLU2 finished in {:.2f} sec".format(time()-t0))
+
+        #pickle.dump(self.hec.decrypt(ctxt), open("ctxt5.pkl", "wb"))
 
         return ctxt, outs
 
-    def forward_linear(self, ctxt, linearl:nn.modules.Linear):
+    def forward_linear(self, ctxt, linearl:nn.modules.Linear, verbose=True):
         hec = self.hec
         no, ni = linearl.weight.shape
 
@@ -142,8 +201,8 @@ class ResNetHEAAN():
         for i in range(ceil(np.log2(no))):
             #ctxt += np.roll(ctxt, 2**i*ni)
             hec.add(ctxt, 
-            hec.lrot(ctxt, -2**i*ni, inplace=False),
-                    inplace=True)
+                hec.lrot(ctxt, -2**i*ni, inplace=False),
+                        inplace=True)
             
 
         # multiply 64 * 10 at once
@@ -165,7 +224,6 @@ class ResNetHEAAN():
         return self.forward(img_tensor)
 
     ##############################
-
     def forward_convbn_par_fhe(self, cnn_layer, bn_layer, ctx, ins, kernels=[3,3]):
         U, ins, outs = get_conv_params(cnn_layer, ins)
         return self.MultParConvBN_fhe(ctx, U, bn_layer, ins, outs, kernels)
@@ -202,7 +260,7 @@ class ResNetHEAAN():
     def MultParConvBN_fhe(self, ct_a, U, bn_layer, ins:Dict, outs:Dict,
                         kernels=[3,3],
                         nslots=2**15, 
-                        scale_factor=1, debug=True):
+                        scale_factor=1, debug=False):
         """Consumes two mults"""
         if ct_a.logq <= 80:
             ct_a = self.hec.bootstrap2(ct_a)
@@ -213,17 +271,12 @@ class ResNetHEAAN():
         ho,wo,co,ko,to,po = [outs[k] for k in outs.keys()]
         q = get_q(co,pi)
         fh,fw= kernels[0],kernels[1]
-        print(f"[MultParConv] (hi,wi,ci,ki,ti,pi) =({hi:2},{wi:2},{ci:2},{ki:2},{ti:2}, {pi:2})")
-        print(f"[MultParConv] (ho,wo,co,ko,to,po) =({ho:2},{wo:2},{co:2},{ko:2},{to:2}, {po:2})")
-        print(f"[MultParConv] q = {q}")
+        print(f"[MultParConv] Layer structure: (hi,wi,ci,ki,ti,pi) =({hi:2},{wi:2},{ci:2},{ki:2},{ti:2}, {pi:2})")
 
         MuxBN_C, MuxBN_M, MuxBN_I = parMuxBN(bn_layer, outs, nslots)
 
         ct_d = self.gen_new_ctxt() ####
         
-        if debug:
-            tmp = self.hec.decrypt(ct_a)
-            print("ct_a", ct_a.logp, ct_a.logq, tmp[::1000])
         ev.modDownTo(ct_d, ct_a.logq - 2*ct_d.logp)
         if debug: print("ct_d", ct_d.logp, ct_d.logq)
         ct = []
@@ -232,45 +285,21 @@ class ResNetHEAAN():
             temp = []
             for i2 in range(fw):
                 lrots = int((-(ki**2)*wi*(i1-(fh-1)/2) - ki*(i2-(fw-1)/2))) #both neg in the paper, git -,+
-                #print("i1,i2, lrots", i1,i2, lrots, flush=True)
                 temp.append(ev.lrot(ct_a, -lrots, inplace=False))
                 if lrots!=0:
                     nrots = nrots+ 1#____________________________________ROTATION
-                if debug:
-                    tmp = self.hec.decrypt(temp[-1])
-                    print("temp  ----  ", temp[-1].logp, 
-                            temp[-1].logq, tmp[::1000])
-                #print("ct\n", len(temp), flush=True)
             ct.append(temp)
-            #print("ct\n", len(ct), flush=True)
-        #return ct
 
         for i3 in range(q):
-            #print("aaaaa", flush=True)
             ct_b = self.gen_new_ctxt() ####
-            #print("bbbbbb", flush=True)
             ev.modDownTo(ct_b, ct[0][0].logq - ct_b.logp)
-            if debug: 
-                print("CT_B", ct_b.logp, ct_b.logq, flush=True)
-                #tmp = self.hec.decrypt(ct_b)
-                #print("CT_B   ----  ", ct_b.logp, 
-                #            ct_b.logq, tmp[::1000])
 
-            #print("cccccc", flush=True)
             for i1 in range(fh):
                 for i2 in range(fw):
-                    #print("xxxxxxxxxx", flush=True)
                     w = ParMultWgt(U,i1,i2,i3,ins,co,kernels,nslots)
-                    #w_enc = encoder.encode(w)#, ct[i1][i2].logp) ####
-                    #print("ct[i1][i2]\n", ct[i1][i2].logp, flush=True)
-                    #print("w",w)
                     tmp = ev.multByVec(ct[i1][i2], w, inplace=False)
-                    #print("dddddd", flush=True)
                     ev.rescale(tmp)
-                    #print("eeeeee", flush=True)
                     ev.add(ct_b, tmp, inplace=True) ####
-                    #print("fffff", flush=True)
-
             
             ct_c,nrots0 = self.SumSlots(ct_b, ki,              1)
             ct_c,nrots1 = self.SumSlots(ct_c, ki,          ki*wi)
@@ -312,7 +341,7 @@ class ResNetHEAAN():
         parms = self.hec.parms
         return he.Ciphertext(parms.logp, parms.logq, parms.n)
 
-    def AVGPool(self, ct_in, ins, nslots):
+    def AVGPool(self, ct_in, ins, nslots, verbose=True):
         hec = self.hec
         ct_a = he.Ciphertext(ct_in)
         #ct_b = np.zeros(nslots)
@@ -332,6 +361,7 @@ class ResNetHEAAN():
                 hec.lrot(ct_a, 2**j*ki*ki*wi, inplace=False),
                         inplace=True) 
 
+        hec.modDownTo(ct_b, ct_a.logq - ct_a.logp)
         ### + 64채널에서 하나씩을 뽑아옴.
         for i1 in range(ki): # 4
             for i2 in range(ti): # 
@@ -343,3 +373,4 @@ class ResNetHEAAN():
                 hec.add(ct_b, tmp, inplace=True) 
                 
         return ct_b
+
