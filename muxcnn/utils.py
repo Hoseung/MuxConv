@@ -183,7 +183,9 @@ def plot_4x4(img, co=None, fn=None):
         plt.savefig(fn)
         plt.close()
 
-def decrypt_result(hec, result):
+def decrypt_result(hec, result, verbose=False):
     dec = hec.decrypt(result)
+    if verbose:
+        print("decrypted result:", dec[:10])
     class_num = np.argmax(dec[:10])
     return class_num
