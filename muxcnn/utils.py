@@ -8,7 +8,11 @@ import torchvision.transforms as transforms
 ### Auxillary functions for the MUXCNN
 def load_params(model, fn_param, device):
     trained_param = torch.load(fn_param, map_location = torch.device(device))
-    trained_param = {key : value.cpu()   for key,value in trained_param.items()}
+    if 'state_dict' in trained_param.keys():
+        trained_param = trained_param['state_dict']
+        print("[INFO] extracting state_dict from the checkpoint")
+    
+    trained_param = {key : value.cpu() for key,value in trained_param.items()}
     model.load_state_dict(trained_param)
 
 def load_img(fname, hi=None, wi=None, show=False):
