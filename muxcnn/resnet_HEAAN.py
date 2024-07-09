@@ -4,8 +4,10 @@ import torch.nn as nn
 from typing import Dict
 from muxcnn.models import ResNet20
 from .comparator_heaan import ApprRelu_HEAAN
-from hemul import loader 
-he = loader.load()
+# from hemul import loader 
+# he = loader.load()
+from fase.heaan_loader import load
+he = load()
 from muxcnn.utils import get_q, get_conv_params, get_channel_last
 from muxcnn.hecnn_par import (MultParPack, 
                                 parMuxBN, 
