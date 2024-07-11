@@ -20,3 +20,5 @@ CIFAR10
 *.pyc 
 RotKey*.txt
 *Key.txt
+
+scripts/lightning_logs/*
