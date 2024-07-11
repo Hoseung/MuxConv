@@ -161,9 +161,9 @@ class ResNetFHE():
         ho,wo,co,ko,to,po = [outs[k] for k in outs.keys()]
         q = get_q(co,pi)
         fh,fw= kernels[0],kernels[1]
-        print(f"[MultParConv] (hi,wi,ci,ki,ti,pi) =({hi:2},{wi:2},{ci:2},{ki:2},{ti:2}, {pi:2})")
-        print(f"[MultParConv] (ho,wo,co,ko,to,po) =({ho:2},{wo:2},{co:2},{ko:2},{to:2}, {po:2})")
-        print(f"[MultParConv] q = {q}")
+        print(f"[MultParConvBN] (hi,wi,ci,ki,ti,pi) =({hi:2},{wi:2},{ci:2},{ki:2},{ti:2}, {pi:2})")
+        print(f"[MultParConvBN] (ho,wo,co,ko,to,po) =({ho:2},{wo:2},{co:2},{ko:2},{to:2}, {po:2})")
+        print(f"[MultParConvBN] q = {q}")
 
         MuxBN_C, MuxBN_M, MuxBN_I = parMuxBN(bn_layer, outs, nslots)
 
