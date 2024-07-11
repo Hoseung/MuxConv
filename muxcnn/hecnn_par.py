@@ -63,7 +63,9 @@ def forward_conv_par(layer, ctx, ins):
     return out, un
 
 
-def MultParConv(ct_a,U,ins:Dict,outs:Dict,kernels=[3,3],nslots=2**15):
+def MultParConv(ct_a, U, ins:Dict, outs:Dict,
+                kernels=[3,3],
+                nslots=2**15):
     hi,wi,ci,ki,ti,pi = [ins[k] for k in ins.keys()]
     ho,wo,co,ko,to,po = [outs[k] for k in outs.keys()]
     q = get_q(co,pi)
@@ -88,7 +90,8 @@ def MultParConv(ct_a,U,ins:Dict,outs:Dict,kernels=[3,3],nslots=2**15):
         ct_b = np.zeros(nslots)
         for i1 in range(fh):
             for i2 in range(fw):
-                w = ParMultWgt(U,i1,i2,i3,ins,outs,kernels,nslots)
+                #w = ParMultWgt(U,i1,i2,i3,ins,outs,kernels,nslots)
+                w = ParMultWgt(U,i1,i2,i3,ins,co,kernels,nslots)
                 ct_b = ct_b + ct[i1][i2]*w
         
         ct_c,nrots0 = SumSlots(ct_b, ki,              1)
@@ -103,18 +106,18 @@ def MultParConv(ct_a,U,ins:Dict,outs:Dict,kernels=[3,3],nslots=2**15):
             r2 = int(np.floor((i%(ko**2))/ko))*ko*wo
             r3 = i%ko
             rrots = (-r1-r2-r3)+r0
-            rolled =  np.roll(ct_c, -rrots)
+            rolled = np.roll(ct_c, -rrots)
             S_mp = tensor_multiplexed_selecting(ho,wo,co,ko,to,i)
             vec_S = Vec(S_mp,nslots)
-            ct_d = ct_d +rolled*vec_S
+            ct_d += rolled * vec_S
             if rrots!=0:
                 nrots=nrots+1 #_________________________________________ROTATION
+    
     for j in range(int(np.round(np.log2(po)))):
         r = int(np.round(2**j*(nslots/po)))
-        ct_d = ct_d + np.roll(ct_d,r)
+        ct_d += np.roll(ct_d,r)
         if r !=0:
             nrots+=1
-            #ic(po,j)
 
     return ct_d
 
@@ -172,9 +175,7 @@ def MultParConvBN(ct_a, U, bn_layer, ins:Dict, outs:Dict,
     ho,wo,co,ko,to,po = [outs[k] for k in outs.keys()]
     q = get_q(co,pi)
     fh,fw= kernels[0],kernels[1]
-    print(f"[MultParConv] (hi,wi,ci,ki,ti,pi) =({hi:2},{wi:2},{ci:2},{ki:2},{ti:2}, {pi:2})")
-    print(f"[MultParConv] (ho,wo,co,ko,to,po) =({ho:2},{wo:2},{co:2},{ko:2},{to:2}, {po:2})")
-    print(f"[MultParConv] q = {q}")
+    print(f"[MultParConvBN] (hi,wi,ci,ki,ti,pi) =({hi:2},{wi:2},{ci:2},{ki:2},{ti:2}, {pi:2})")
 
     MuxBN_C, MuxBN_M, MuxBN_I = parMuxBN(bn_layer, outs, nslots)
 
@@ -215,9 +216,9 @@ def MultParConvBN(ct_a, U, bn_layer, ins:Dict, outs:Dict,
             S_mp = tensor_multiplexed_selecting(ho,wo,co,ko,to,i)
             vec_S = Vec(S_mp,nslots)
             #print("plain", (vec_S * MuxBN_C)[2040:2050])
-            tmp = rolled*vec_S * MuxBN_C
+            #tmp = rolled*vec_S * MuxBN_C
             #print("tmp", tmp[2040:2050])
-            ct_d += tmp
+            ct_d += rolled * vec_S * MuxBN_C
             
             if rrots!=0:
                 nrots=nrots+1 #_________________________________________ROTATION
@@ -228,8 +229,6 @@ def MultParConvBN(ct_a, U, bn_layer, ins:Dict, outs:Dict,
         ct_d += np.roll(ct_d,r)
         if r !=0:
             nrots+=1
-            #ic(po,j)
-    #print(ct_d[2040:2050])#[2000:2010])
     ct_d -= 1/scale_factor*(MuxBN_C*MuxBN_M-MuxBN_I)
 
     return ct_d
