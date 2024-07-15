@@ -1,7 +1,7 @@
 from muxcnn.hecnn import *
 from muxcnn.utils import *
 from typing import Dict
-from math import floor
+from math import floor, sqrt, pi
 
 def MultParPack(A,dims=[],nslots=2**15):
     ha,wa,ca,ka,ta,pa = [dims[k] for k in dims.keys()]
@@ -56,9 +56,9 @@ def ParMultWgt(U,i1,i2,i3,ins:Dict,co,kernels,nslots=2**15):
         result[out_channel*temp_size:(out_channel+1)*temp_size] = out[out_channel*h_w_c:out_channel*h_w_c+temp_size]
     return result
 
-def forward_conv_par(layer, ctx, ins):
+def forward_conv_par(layer, ctx, ins, kernels=[3,3]):
     U, ins, outs = get_conv_params(layer, ins)    
-    out = MultParConv(ctx, U, ins, outs)
+    out = MultParConv(ctx, U, ins, outs, kernels=kernels)
     un = unpack(out,outs)
     return out, un
 
@@ -121,8 +121,58 @@ def MultParConv(ct_a, U, ins:Dict, outs:Dict,
 
     return ct_d
 
+
+def hermitePN(ctxt, bn_layer, outs, nslots):
+    """
+    apply Hermite Polynomial ReLU approximation and basis-wise Normalization at once
+    """
+    h0 = 1
+    h1 = ctxt
+    h2 = (ctxt*ctxt - 1)/sqrt(2)
+
+    # Coefficients of Hermite approximation of ReLU
+    f0 = 1/sqrt(2*pi)
+    f1 = 1/2
+    f2 = 1/sqrt(2*pi*2) 
+    
+    # Normalize and scale
+    h0_bn = h0 * f0
+    h1_bn = parMuxBN_separate(f1*h1, bn_layer, outs, nslots, term=1)
+    h2_bn = parMuxBN_separate(f2*h2, bn_layer, outs, nslots, term=2)
+
+    result = h0_bn + h1_bn + h2_bn
+    return result
+    
+    
 ###################################################################
 
+def parMuxBN_separate(ctxt, bn_layer, outs, nslots, term=1):
+    """
+    Get the normalization paramter of the basis(term)
+    """
+    if term == 1:
+        bn_T, bn_V, bn_M, bn_I, bn_eps = get_bn_params(bn_layer)
+    elif term == 2:
+        bn_T, bn_V, bn_M, bn_I, bn_eps = get_bn_params2(bn_layer)
+    if bn_T is None:
+        bn_T = np.ones_like(bn_V)
+    if bn_I is None:
+        bn_I = np.zeros_like(bn_V)
+    bn_C = bn_T/np.sqrt(bn_V+bn_eps)
+    expanded_C = mux_BN_const(bn_C, outs, nslots) # 
+    expanded_M = mux_BN_const(bn_M, outs, nslots) # MEAN
+    expanded_I = mux_BN_const(bn_I/np.sqrt(bn_V+bn_eps), outs, nslots) # BIAS
+    
+    return expanded_C*(ctxt - expanded_M) + expanded_I
+
+def get_bn_params2(bn_layer):
+    bn_T = bn_layer.weight # Gamma
+    bn_V = bn_layer.running_var2
+    bn_M = bn_layer.running_mean2
+    bn_I = bn_layer.bias  # Beta
+    bn_eps = bn_layer.eps
+    return bn_T, bn_V, bn_M, bn_I, bn_eps    
+    
 def get_bn_params(bn_layer):
     bn_T = bn_layer.weight # Gamma
     bn_V = bn_layer.running_var
@@ -196,13 +246,10 @@ def MultParConvBN(ct_a, U, bn_layer, ins:Dict, outs:Dict,
         for i1 in range(fh):
             for i2 in range(fw):
                 w = ParMultWgt(U,i1,i2,i3,ins,co,kernels,nslots)
-                #print("w = w2?", np.array_equal(w,w2))
                 ct_b = ct_b + ct[i1][i2]*w     
-        #print(ct_b)#[2000:2010])                        
         ct_c,nrots0 = SumSlots(ct_b, ki,              1)
         ct_c,nrots1 = SumSlots(ct_c, ki,          ki*wi)
         ct_c,nrots2 = SumSlots(ct_c, ti,  (ki**2)*hi*wi)
-        #print(ct_c)#[2000:2010])
         nrots += nrots0 + nrots1 + nrots2#____________________________________ROTATION
         
         for i4 in range(0,min(pi,co-pi*i3)):
@@ -215,15 +262,11 @@ def MultParConvBN(ct_a, U, bn_layer, ins:Dict, outs:Dict,
             rolled = np.roll(ct_c, -rrots)
             S_mp = tensor_multiplexed_selecting(ho,wo,co,ko,to,i)
             vec_S = Vec(S_mp,nslots)
-            #print("plain", (vec_S * MuxBN_C)[2040:2050])
-            #tmp = rolled*vec_S * MuxBN_C
-            #print("tmp", tmp[2040:2050])
             ct_d += rolled * vec_S * MuxBN_C
             
             if rrots!=0:
                 nrots=nrots+1 #_________________________________________ROTATION
 
-    #print(ct_d[2040:2050])#[2000:2010])
     for j in range(int(np.round(np.log2(po)))):
         r = int(np.round(2**j*(nslots/po)))
         ct_d += np.roll(ct_d,r)
