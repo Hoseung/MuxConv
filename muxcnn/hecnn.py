@@ -6,10 +6,11 @@ convolutional neural network inference on homomorphically encrypted data
 using multiplexed tensor packing.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Tuple
+import numpy as np
 from muxcnn.utils import *
 
-def Vec(mat,nslots):
+def Vec(mat: np.ndarray, nslots: int) -> np.ndarray:
     """Vectorize a 3D matrix into a 1D array for ciphertext packing.
 
     Args:
@@ -28,7 +29,7 @@ def Vec(mat,nslots):
         out[i]=mat[idx_1st][idx_2nd][idx_3rd]
     return out
 
-def tensor_multiplexed_input(mat,dims=[]):
+def tensor_multiplexed_input(mat: np.ndarray, dims: Dict = {}) -> np.ndarray:
     hi,wi,ci, ki,ti,pi = [dims[k] for k in dims.keys()]
     out = np.zeros([ki*hi,ki*wi,ti])
     for i3 in range(ki*hi):
@@ -42,10 +43,10 @@ def tensor_multiplexed_input(mat,dims=[]):
                     out[i3][i4][i5] = mat[idx_1st][idx_2nd][idx_3rd]
     return out
 
-def MultPack(mat,dims=[],nslots=2**15):
+def MultPack(mat: np.ndarray, dims: Dict = {}, nslots: int = 2**15) -> np.ndarray:
     return Vec(tensor_multiplexed_input(mat,dims),nslots)
 
-def unpack(ct,dims=[]):
+def unpack(ct: np.ndarray, dims: Dict = {}) -> np.ndarray:
     """Unpack a ciphertext into separate channel matrices.
 
     Args:
@@ -105,7 +106,8 @@ def MultWgt(U,i1,i2,i,ins=[],nslots=2**15):
     out[:temp.size]=temp
     return out
 
-def MultConv(ct_a,U,ins:Dict,outs:Dict,kernels=[3,3],nslots=2**15):
+def MultConv(ct_a: np.ndarray, U: np.ndarray, ins: Dict, outs: Dict,
+             kernels: List[int] = [3,3], nslots: int = 2**15) -> np.ndarray:
     """Perform multiplexed convolution on encrypted data.
 
     Implements efficient convolution on homomorphically encrypted ciphertexts

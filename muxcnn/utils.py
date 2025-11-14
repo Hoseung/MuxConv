@@ -6,6 +6,7 @@ image loading, dimension calculations, and visualization for the
 multiplexed convolutional neural network operations.
 """
 
+from typing import Dict, Tuple, Optional
 import torch
 import numpy as np
 from matplotlib import pyplot as plt
@@ -14,7 +15,7 @@ from PIL import Image
 import torchvision.transforms as transforms
 
 ### Auxiliary functions for the MUXCNN
-def load_params(model, fn_param, device):
+def load_params(model: torch.nn.Module, fn_param: str, device: str) -> None:
     """Load trained parameters into a model.
 
     Args:
@@ -26,7 +27,8 @@ def load_params(model, fn_param, device):
     trained_param = {key : value.cpu()   for key,value in trained_param.items()}
     model.load_state_dict(trained_param)
 
-def load_img(fname, hi=None, wi=None, show=False):
+def load_img(fname: str, hi: Optional[int] = None, wi: Optional[int] = None,
+             show: bool = False) -> torch.Tensor:
     """Load and preprocess an image for CNN inference.
 
     Args:
@@ -102,7 +104,7 @@ def calculate_nrots(fh,fw,co,ki,ti):
 
 
 
-def SumSlots(ct_a,m,p):
+def SumSlots(ct_a: np.ndarray, m: int, p: int) -> Tuple[np.ndarray, int]:
     """Sum slots in a ciphertext using logarithmic rotations.
 
     Efficiently aggregates m consecutive slots with a stride of p
@@ -183,7 +185,7 @@ def get_dims(hi,wi,ci,ki,ti,ho,wo,co,ko,to,nslots=2**15):
     return pi,ins,po,outs
 
 
-def get_conv_params(conv_layer, ins):
+def get_conv_params(conv_layer: torch.nn.Module, ins: Dict) -> Tuple[np.ndarray, Dict, Dict]:
     """Extract convolution parameters and compute output dimensions.
 
     Args:
