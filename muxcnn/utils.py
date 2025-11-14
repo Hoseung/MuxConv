@@ -1,3 +1,11 @@
+"""
+Utility functions for MuxConv operations.
+
+This module provides auxiliary functions for tensor manipulation,
+image loading, dimension calculations, and visualization for the
+multiplexed convolutional neural network operations.
+"""
+
 import torch
 import numpy as np
 from matplotlib import pyplot as plt
@@ -5,13 +13,31 @@ from math import ceil
 from PIL import Image
 import torchvision.transforms as transforms
 
-### Auxillary functions for the MUXCNN
+### Auxiliary functions for the MUXCNN
 def load_params(model, fn_param, device):
+    """Load trained parameters into a model.
+
+    Args:
+        model: PyTorch model to load parameters into
+        fn_param: Filename of the saved parameters
+        device: Device to map the parameters to
+    """
     trained_param = torch.load(fn_param, map_location = torch.device(device))
     trained_param = {key : value.cpu()   for key,value in trained_param.items()}
     model.load_state_dict(trained_param)
 
 def load_img(fname, hi=None, wi=None, show=False):
+    """Load and preprocess an image for CNN inference.
+
+    Args:
+        fname: Filename of the image to load
+        hi: Target height for resizing
+        wi: Target width for resizing
+        show: Whether to display the image
+
+    Returns:
+        Preprocessed image tensor normalized to [-1, 1]
+    """
     image = Image.open(fname)
     if show:
         plt.imshow(image)
@@ -77,6 +103,19 @@ def calculate_nrots(fh,fw,co,ki,ti):
 
 
 def SumSlots(ct_a,m,p):
+    """Sum slots in a ciphertext using logarithmic rotations.
+
+    Efficiently aggregates m consecutive slots with a stride of p
+    using O(log m) rotations instead of O(m) operations.
+
+    Args:
+        ct_a: Input ciphertext array
+        m: Number of slots to sum
+        p: Stride/period between slots
+
+    Returns:
+        Tuple of (summed_ciphertext, num_rotations)
+    """
     nrots = 0
     n = int(np.floor(np.log2(m)))
     ct_b = []
@@ -145,6 +184,15 @@ def get_dims(hi,wi,ci,ki,ti,ho,wo,co,ko,to,nslots=2**15):
 
 
 def get_conv_params(conv_layer, ins):
+    """Extract convolution parameters and compute output dimensions.
+
+    Args:
+        conv_layer: PyTorch Conv2d layer
+        ins: Dictionary containing input dimensions (h, w, k)
+
+    Returns:
+        Tuple of (weights, input_dims, output_dims)
+    """
     U = get_channel_last(conv_layer.weight.detach().numpy())
     co, ci, fh, fw = conv_layer.weight.shape
     stride, stride = conv_layer.stride

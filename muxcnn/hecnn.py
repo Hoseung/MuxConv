@@ -1,7 +1,24 @@
+"""
+Core multiplexed convolution operations for homomorphic encryption.
+
+This module implements the fundamental operations for performing
+convolutional neural network inference on homomorphically encrypted data
+using multiplexed tensor packing.
+"""
+
 from typing import List, Dict
 from muxcnn.utils import *
 
 def Vec(mat,nslots):
+    """Vectorize a 3D matrix into a 1D array for ciphertext packing.
+
+    Args:
+        mat: Input 3D array of shape (h, w, c)
+        nslots: Number of slots in the ciphertext
+
+    Returns:
+        Flattened 1D array of size nslots
+    """
     hi,wi,ci = np.shape(mat)
     out = np.zeros(nslots)
     for i in range(hi*wi*ci):
@@ -28,7 +45,16 @@ def tensor_multiplexed_input(mat,dims=[]):
 def MultPack(mat,dims=[],nslots=2**15):
     return Vec(tensor_multiplexed_input(mat,dims),nslots)
 
-def unpack(ct,dims=[]):#제대로 작동(10.31) 
+def unpack(ct,dims=[]):
+    """Unpack a ciphertext into separate channel matrices.
+
+    Args:
+        ct: Packed ciphertext array
+        dims: Dimension dictionary with keys (h, w, c, k, t, p)
+
+    Returns:
+        3D numpy array of unpacked channels
+    """ 
     ha,wa,ca,ka,ta,pa = [dims[k] for k in dims.keys()]
     tsize = ha*wa*ka**2
     ct = ct[:ta*tsize]
@@ -80,6 +106,22 @@ def MultWgt(U,i1,i2,i,ins=[],nslots=2**15):
     return out
 
 def MultConv(ct_a,U,ins:Dict,outs:Dict,kernels=[3,3],nslots=2**15):
+    """Perform multiplexed convolution on encrypted data.
+
+    Implements efficient convolution on homomorphically encrypted ciphertexts
+    using multiplexed packing to minimize rotations and operations.
+
+    Args:
+        ct_a: Input ciphertext (packed tensor)
+        U: Weight tensor in channel-last format
+        ins: Input dimensions dict with keys (h, w, c, k, t, p)
+        outs: Output dimensions dict with keys (h, w, c, k, t, p)
+        kernels: Kernel size [height, width], default [3, 3]
+        nslots: Number of ciphertext slots, default 2^15
+
+    Returns:
+        Output ciphertext after convolution
+    """
     hi,wi,ci,ki,ti,pi = [ins[k] for k in ins.keys()]
     ho,wo,co,ko,to,po = [outs[k] for k in outs.keys()]
     fh,fw= kernels[0],kernels[1]
