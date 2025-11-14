@@ -10,6 +10,10 @@ from typing import List, Dict, Tuple
 import numpy as np
 from muxcnn.utils import *
 
+# Constants
+DEFAULT_NSLOTS = 2**15  # Default number of ciphertext slots (32768)
+DEFAULT_KERNEL_SIZE = [3, 3]  # Default convolution kernel size
+
 def Vec(mat: np.ndarray, nslots: int) -> np.ndarray:
     """Vectorize a 3D matrix into a 1D array for ciphertext packing.
 
@@ -43,7 +47,7 @@ def tensor_multiplexed_input(mat: np.ndarray, dims: Dict = {}) -> np.ndarray:
                     out[i3][i4][i5] = mat[idx_1st][idx_2nd][idx_3rd]
     return out
 
-def MultPack(mat: np.ndarray, dims: Dict = {}, nslots: int = 2**15) -> np.ndarray:
+def MultPack(mat: np.ndarray, dims: Dict = {}, nslots: int = DEFAULT_NSLOTS) -> np.ndarray:
     return Vec(tensor_multiplexed_input(mat,dims),nslots)
 
 def unpack(ct: np.ndarray, dims: Dict = {}) -> np.ndarray:
@@ -100,14 +104,14 @@ def tensor_multiplexed_shifted_weight(U,i1,i2,i,ins:Dict):
                     out[i3][i4][i5] = U[i1][i2][ki**2*i5+ki*(i3%ki)+i4%ki][i]
     return out
 
-def MultWgt(U,i1,i2,i,ins=[],nslots=2**15):
+def MultWgt(U,i1,i2,i,ins=[],nslots=DEFAULT_NSLOTS):
     out = np.zeros(nslots)
     temp = Vec(tensor_multiplexed_shifted_weight(U,i1,i2,i,ins),nslots)
     out[:temp.size]=temp
     return out
 
 def MultConv(ct_a: np.ndarray, U: np.ndarray, ins: Dict, outs: Dict,
-             kernels: List[int] = [3,3], nslots: int = 2**15) -> np.ndarray:
+             kernels: List[int] = DEFAULT_KERNEL_SIZE, nslots: int = DEFAULT_NSLOTS) -> np.ndarray:
     """Perform multiplexed convolution on encrypted data.
 
     Implements efficient convolution on homomorphically encrypted ciphertexts

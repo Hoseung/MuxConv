@@ -1,9 +1,16 @@
-from muxcnn.hecnn import *
+"""
+Parallel multiplexed convolution operations for batch processing.
+
+This module extends the core multiplexed convolution with parallel
+processing capabilities for improved throughput on encrypted data.
+"""
+
+from muxcnn.hecnn import DEFAULT_NSLOTS, DEFAULT_KERNEL_SIZE, *
 from muxcnn.utils import *
 from typing import Dict
 from math import floor
 
-def MultParPack(A,dims=[],nslots=2**15):
+def MultParPack(A,dims=[],nslots=DEFAULT_NSLOTS):
     ha,wa,ca,ka,ta,pa = [dims[k] for k in dims.keys()]
     A_mp = MultPack(A,dims,nslots)
     
@@ -46,7 +53,7 @@ def tensor_multiplexed_shifted_weight_par(U,i1,i2,i3,ins:Dict,co, kernels):
                     out[i5][i6][i7] = U[i1][i2][cond1][cond0]
     return out
 
-def ParMultWgt(U,i1,i2,i3,ins:Dict,co,kernels,nslots=2**15):
+def ParMultWgt(U,i1,i2,i3,ins:Dict,co,kernels,nslots=DEFAULT_NSLOTS):
     u = tensor_multiplexed_shifted_weight_par(U,i1,i2,i3,ins,co,kernels)
     out = Vec(u,nslots)
     temp_size = int(nslots/ins['p'])
@@ -63,7 +70,7 @@ def forward_conv_par(layer, ctx, ins):
     return out, un
 
 
-def MultParConv(ct_a,U,ins:Dict,outs:Dict,kernels=[3,3],nslots=2**15):
+def MultParConv(ct_a,U,ins:Dict,outs:Dict,kernels=DEFAULT_KERNEL_SIZE,nslots=DEFAULT_NSLOTS):
     hi,wi,ci,ki,ti,pi = [ins[k] for k in ins.keys()]
     ho,wo,co,ko,to,po = [outs[k] for k in outs.keys()]
     q = get_q(co,pi)
