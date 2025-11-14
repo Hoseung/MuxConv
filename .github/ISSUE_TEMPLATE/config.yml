@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or Discussion
+    url: https://github.com/Hoseung/MuxConv/discussions
+    about: Ask questions or discuss ideas with the community
+  - name: Security Issue
+    url: mailto:hschoi@dinsight.ai
+    about: Report security vulnerabilities privately
