@@ -1,14 +1,22 @@
+"""
+ResNet implementation using multiplexed convolution for FHE.
+
+This module provides a ResNet architecture adapted for homomorphic
+encryption using multiplexed convolution operations.
+"""
+
 import torch.nn as nn
 from muxcnn.models import ResNet20
 from muxcnn.comparator import ApprRelu
 from muxcnn.utils import *
 from muxcnn.hecnn_par import *
+from muxcnn.hecnn import DEFAULT_NSLOTS
 
 class ResNet_MuxConv():
     def __init__(self, model, alpha=12):
         self.torch_model = model
         self.torch_model.eval()
-        self.nslots = 2**15
+        self.nslots = DEFAULT_NSLOTS
         
         self._set_activation(alpha=alpha, xmin=-10, xmax=10, min_depth=True)
         
@@ -23,7 +31,7 @@ class ResNet_MuxConv():
         ctxt, outs1 = self.forward_bb(model.layer1[0], ctxt, outs0)
         ctxt, outs2 = self.forward_bb(model.layer2[0], ctxt, outs1)
         ctxt, outs3 = self.forward_bb(model.layer3[0], ctxt, outs2)
-        ctxt = AVGPool(ctxt, outs3, self.nslots) # Gloval pooling
+        ctxt = AVGPool(ctxt, outs3, self.nslots) # Global pooling
         return self.forward_linear(ctxt, model.linear)
 
     def forward_early(self, img_tensor):
@@ -76,7 +84,7 @@ class ResNet_MuxConv():
             ctxt += np.roll(ctxt, 2**i*ni)
 
         # multiply 64 * 10 at once
-        # AVGPool에서 S_vec를 조절하면 이 단계의 일부를 미리 수행할 수 있음 !!
+        # Note: Part of this step can be performed in advance by adjusting S_vec in AVGPool
         ctxt = weight_vec * ctxt
 
         # Sum 64 numbers each 
